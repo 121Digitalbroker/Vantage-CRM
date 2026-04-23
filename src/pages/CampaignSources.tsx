@@ -1,4 +1,5 @@
-import { Megaphone, ArrowUpRight, TrendingUp, TrendingDown, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Megaphone, ArrowUpRight, TrendingUp, TrendingDown, Plus, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -9,15 +10,29 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useNavigate } from 'react-router-dom';
 
-const MOCK_CAMPAIGNS = [
-  { id: 1, name: 'Google Search Ads - Q1', platform: 'Google Ads', spend: '$4,500', leads: 145, costPerLead: '$31.03', status: 'Active', trend: 'up' },
-  { id: 2, name: 'FB Retargeting - Villas', platform: 'Facebook', spend: '$2,100', leads: 86, costPerLead: '$24.41', status: 'Active', trend: 'up' },
-  { id: 3, name: 'LinkedIn Professionals', platform: 'LinkedIn', spend: '$3,200', leads: 42, costPerLead: '$76.19', status: 'Paused', trend: 'down' },
-  { id: 4, name: 'Spring Newsletter', platform: 'Email', spend: '$150', leads: 28, costPerLead: '$5.35', status: 'Completed', trend: 'up' },
-];
+interface Campaign {
+  id: string;
+  name: string;
+  platform: string;
+  spend: number;
+}
 
 export default function CampaignSources() {
+  const navigate = useNavigate();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [totalSpend, setTotalSpend] = useState(0);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('crm_campaigns');
+    if (saved) {
+      const parsedCampaigns: Campaign[] = JSON.parse(saved);
+      setCampaigns(parsedCampaigns);
+      setTotalSpend(parsedCampaigns.reduce((sum, c) => sum + c.spend, 0));
+    }
+  }, []);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -25,9 +40,9 @@ export default function CampaignSources() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Campaign Sources</h1>
           <p className="text-sm text-slate-500 mt-1">Track marketing campaigns, ad spend, and lead generation performance.</p>
         </div>
-        <Button className="bg-blue-500 text-white hover:bg-blue-600">
+        <Button onClick={() => navigate('/settings')} className="bg-blue-500 text-white hover:bg-blue-600">
           <Plus className="w-4 h-4 mr-2" />
-          New Campaign
+          Manage Campaigns
         </Button>
       </div>
 
@@ -37,7 +52,7 @@ export default function CampaignSources() {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-slate-500">Total Ad Spend</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">$9,950</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-1">₹{totalSpend.toLocaleString('en-IN')}</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
                   <Megaphone className="w-5 h-5 text-blue-500" />
@@ -50,7 +65,7 @@ export default function CampaignSources() {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-slate-500">Total Leads Generated</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">301</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-1">0</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center">
                   <ArrowUpRight className="w-5 h-5 text-green-500" />
@@ -63,7 +78,7 @@ export default function CampaignSources() {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-slate-500">Avg. Cost Per Lead</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-1">$33.05</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-1">₹0</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center">
                   <TrendingUp className="w-5 h-5 text-purple-500" />
@@ -80,35 +95,27 @@ export default function CampaignSources() {
               <TableHead className="font-semibold text-slate-500 px-6 py-3">Campaign Name</TableHead>
               <TableHead className="font-semibold text-slate-500 px-6 py-3">Platform</TableHead>
               <TableHead className="font-semibold text-slate-500 px-6 py-3">Spend</TableHead>
-              <TableHead className="font-semibold text-slate-500 px-6 py-3">Leads</TableHead>
-              <TableHead className="font-semibold text-slate-500 px-6 py-3">CPL</TableHead>
-              <TableHead className="font-semibold text-slate-500 px-6 py-3">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {MOCK_CAMPAIGNS.map((campaign) => (
-              <TableRow key={campaign.id} className="border-b border-slate-200">
-                <TableCell className="px-6 py-4 font-medium text-slate-900">{campaign.name}</TableCell>
-                <TableCell className="px-6 py-4 text-slate-500">{campaign.platform}</TableCell>
-                <TableCell className="px-6 py-4 text-slate-900">{campaign.spend}</TableCell>
-                <TableCell className="px-6 py-4 text-slate-900">
-                  <div className="flex items-center gap-2">
-                    {campaign.leads}
-                    {campaign.trend === 'up' ? <TrendingUp className="w-3 h-3 text-green-500" /> : <TrendingDown className="w-3 h-3 text-red-500" />}
-                  </div>
-                </TableCell>
-                <TableCell className="px-6 py-4 text-slate-900">{campaign.costPerLead}</TableCell>
-                <TableCell className="px-6 py-4">
-                  <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
-                    campaign.status === 'Active' ? 'bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20' :
-                    campaign.status === 'Paused' ? 'bg-yellow-50 text-yellow-800 ring-1 ring-inset ring-yellow-600/20' :
-                    'bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-500/10'
-                  }`}>
-                    {campaign.status}
-                  </span>
+            {campaigns.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8 text-slate-500">
+                  No active campaigns found. Add campaigns in Settings to track ad spend.
+                  <Button variant="link" onClick={() => navigate('/settings')} className="ml-2 text-blue-500 p-0 h-auto font-medium">
+                    Go to Settings <ExternalLink className="w-3 h-3 ml-1" />
+                  </Button>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              campaigns.map((campaign) => (
+                <TableRow key={campaign.id} className="border-b border-slate-200">
+                  <TableCell className="px-6 py-4 font-medium text-slate-900">{campaign.name}</TableCell>
+                  <TableCell className="px-6 py-4 text-slate-500">{campaign.platform}</TableCell>
+                  <TableCell className="px-6 py-4 font-medium text-slate-900">₹{campaign.spend.toLocaleString('en-IN')}</TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

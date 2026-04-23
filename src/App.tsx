@@ -93,7 +93,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <RoleProvider>
-      <Router basename="/crm">
+      <Router>
         <AppRoutes />
         <Toaster position="top-right" />
       </Router>

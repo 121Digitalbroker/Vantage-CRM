@@ -6,12 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useRole } from '@/src/contexts/RoleContext';
 
-const DEMO_CREDENTIALS = [
-  { label: 'Admin',       email: 'admin@estatescrm.com',  password: 'admin123',       role: 'Admin' },
-  { label: 'Rahul (TC)',  email: 'rahul@estatescrm.com',  password: 'telecaller123',  role: 'Telecaller' },
-  { label: 'Priya (TC)',  email: 'priya@estatescrm.com',  password: 'telecaller123',  role: 'Telecaller' },
-];
-
 export default function Login() {
   const navigate  = useNavigate();
   const { login } = useRole();
@@ -30,24 +24,16 @@ export default function Login() {
     if (!password.trim()) { setError('Please enter your password.'); return; }
 
     setLoading(true);
-    // Simulate network delay for realistic feel
     await new Promise(r => setTimeout(r, 400));
 
     const result = login(email.trim(), password);
     setLoading(false);
 
     if (result.success) {
-      // Role-based redirect handled in App.tsx ProtectedRoute
       navigate('/', { replace: true });
     } else {
-      setError(result.error ?? 'Login failed. Please try again.');
+      setError(result.error ?? 'Login failed. Please check your credentials and try again.');
     }
-  };
-
-  const fillCredentials = (email: string, password: string) => {
-    setEmail(email);
-    setPassword(password);
-    setError('');
   };
 
   return (
@@ -57,9 +43,9 @@ export default function Login() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-3">
             <div className="w-11 h-11 rounded-xl bg-blue-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/30">
-              EF
+              VC
             </div>
-            <span className="text-2xl font-bold text-slate-900 tracking-tight">EstatesCRM</span>
+            <span className="text-2xl font-bold text-slate-900 tracking-tight">Vantage CRM</span>
           </div>
           <p className="text-sm text-slate-500 mt-1">Real estate telecaller management platform</p>
         </div>
@@ -73,7 +59,7 @@ export default function Login() {
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="px-8 py-6 space-y-5">
+          <form onSubmit={handleSubmit} className="px-8 py-8 space-y-5">
             {/* Error banner */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-600 flex items-start gap-2">
@@ -91,7 +77,7 @@ export default function Login() {
                 id="email"
                 type="email"
                 autoComplete="email"
-                placeholder="you@estatescrm.com"
+                placeholder="you@vantagerealtors.in"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 className="h-10 border-slate-200 focus-visible:ring-blue-500 text-sm"
@@ -143,43 +129,12 @@ export default function Login() {
               )}
             </Button>
           </form>
-
-          {/* Demo credentials */}
-          <div className="px-8 pb-8">
-            <div className="border-t border-slate-100 pt-5">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                Quick demo login
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {DEMO_CREDENTIALS.map(cred => (
-                  <button
-                    key={cred.email}
-                    type="button"
-                    onClick={() => fillCredentials(cred.email, cred.password)}
-                    className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 transition-colors group"
-                  >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${
-                      cred.role === 'Admin' ? 'bg-blue-500' : 'bg-emerald-500'
-                    }`}>
-                      {cred.role === 'Admin' ? 'AU' : cred.label.split(' ')[0].slice(0, 2).toUpperCase()}
-                    </div>
-                    <span className="text-[0.7rem] font-medium text-slate-600 group-hover:text-blue-700 leading-tight text-center">
-                      {cred.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-[0.68rem] text-slate-400 text-center mt-3">
-                Click any card above to auto-fill credentials, then press Sign in
-              </p>
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
         <div className="text-center mt-6 flex items-center justify-center gap-1.5 text-xs text-slate-400">
           <Phone className="w-3.5 h-3.5" />
-          EstatesCRM · Real Estate Telecaller Platform
+          Vantage CRM · Real Estate Telecaller Platform
         </div>
       </div>
     </div>

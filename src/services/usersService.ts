@@ -1,41 +1,10 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { AppUser } from '@/src/contexts/RoleContext';
 
-const USE_DEMO = import.meta.env.VITE_USE_DEMO_USERS !== 'false';
+function makeInitials(name: string): string {
+  return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
 
-// Local storage keys (fallback/demo mode)
-const STORAGE_USERS_KEY = 'crm_users';
-
-// Seed users (matches the SQL seed data)
-const SEED_USERS: AppUser[] = [
-  {
-    id: 'admin-1', name: 'Admin User', email: 'admin@estatescrm.com',
-    password: 'admin123', role: 'Admin', initials: 'AU',
-    status: 'Active', createdAt: '2026-01-01T00:00:00Z',
-  },
-  {
-    id: 'u1', name: 'Rahul Sharma', email: 'rahul@estatescrm.com',
-    password: 'telecaller123', role: 'Telecaller', initials: 'RS',
-    status: 'Active', phone: '+91 98765-11111', createdAt: '2026-01-05T00:00:00Z',
-  },
-  {
-    id: 'u2', name: 'Priya Mehta', email: 'priya@estatescrm.com',
-    password: 'telecaller123', role: 'Telecaller', initials: 'PM',
-    status: 'Active', phone: '+91 98765-22222', createdAt: '2026-01-05T00:00:00Z',
-  },
-  {
-    id: 'u3', name: 'Arjun Patel', email: 'arjun@estatescrm.com',
-    password: 'telecaller123', role: 'Telecaller', initials: 'AP',
-    status: 'Active', phone: '+91 98765-33333', createdAt: '2026-01-06T00:00:00Z',
-  },
-  {
-    id: 'u4', name: 'Sneha Gupta', email: 'sneha@estatescrm.com',
-    password: 'telecaller123', role: 'Telecaller', initials: 'SG',
-    status: 'Active', phone: '+91 98765-44444', createdAt: '2026-01-06T00:00:00Z',
-  },
-];
-
-// Helper to map DB row to AppUser
 function mapToAppUser(row: any): AppUser {
   return {
     id: row.id,
@@ -51,25 +20,7 @@ function mapToAppUser(row: any): AppUser {
   };
 }
 
-// Demo mode: load from localStorage
-function loadDemoUsers(): AppUser[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_USERS_KEY);
-    if (raw) {
-      const saved: AppUser[] = JSON.parse(raw);
-      const merged = [...SEED_USERS];
-      saved.forEach(u => { if (!merged.find(m => m.id === u.id)) merged.push(u); });
-      return merged;
-    }
-  } catch { /* ignore */ }
-  return [...SEED_USERS];
-}
-
 export async function fetchUsers(): Promise<AppUser[]> {
-  if (USE_DEMO) {
-    return loadDemoUsers();
-  }
-
   const { data, error } = await supabase
     .from('users')
     .select('*')
@@ -84,14 +35,10 @@ export async function fetchUsers(): Promise<AppUser[]> {
 }
 
 export async function fetchUserByEmail(email: string): Promise<AppUser | null> {
-  if (USE_DEMO) {
-    return loadDemoUsers().find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
-  }
-
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('email', email)
+    .eq('email', email.toLowerCase())
     .single();
 
   if (error || !data) return null;
@@ -111,15 +58,6 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
     created_at: new Date().toISOString(),
   };
 
-  if (USE_DEMO) {
-    const users = loadDemoUsers();
-    if (users.find(u => u.email.toLowerCase() === newUser.email)) return null;
-    const appUser = mapToAppUser(newUser);
-    users.push(appUser);
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-    return appUser;
-  }
-
   const { data, error } = await supabase
     .from('users')
     .insert(newUser)
@@ -134,15 +72,6 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
 }
 
 export async function updateUserStatus(userId: string, status: 'Active' | 'Inactive'): Promise<boolean> {
-  if (USE_DEMO) {
-    const users = loadDemoUsers();
-    const idx = users.findIndex(u => u.id === userId);
-    if (idx === -1) return false;
-    users[idx].status = status;
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-    return true;
-  }
-
   const { error } = await supabase
     .from('users')
     .update({ status })
@@ -152,15 +81,6 @@ export async function updateUserStatus(userId: string, status: 'Active' | 'Inact
 }
 
 export async function resetUserPassword(userId: string, newPassword: string): Promise<boolean> {
-  if (USE_DEMO) {
-    const users = loadDemoUsers();
-    const idx = users.findIndex(u => u.id === userId);
-    if (idx === -1) return false;
-    users[idx].password = newPassword;
-    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-    return true;
-  }
-
   const { error } = await supabase
     .from('users')
     .update({ password: newPassword })
@@ -169,6 +89,15 @@ export async function resetUserPassword(userId: string, newPassword: string): Pr
   return !error;
 }
 
-function makeInitials(name: string): string {
-  return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+export async function deleteUser(userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('users')
+    .delete()
+    .eq('id', userId);
+
+  if (error) {
+    console.error('Failed to delete user:', error);
+    return false;
+  }
+  return true;
 }

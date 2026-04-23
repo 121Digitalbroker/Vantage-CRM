@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   UserPlus, MoreHorizontal, Edit, Ban, CheckCircle,
-  Users as UsersIcon, Phone, Key, Eye, EyeOff, Shield,
+  Users as UsersIcon, Phone, Key, Eye, EyeOff, Shield, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,7 @@ const roleAvatarColors: Record<string, string> = {
 };
 
 export default function Users() {
-  const { allUsers, addTelecaller, toggleUserStatus, resetPassword } = useRole();
+  const { allUsers, addTelecaller, toggleUserStatus, resetPassword, removeUser } = useRole();
 
   // ── Add user dialog ────────────────────────────────────────────────────────
   const [dialogOpen,   setDialogOpen]   = useState(false);
@@ -49,6 +49,10 @@ export default function Users() {
   const [resetDialogUser, setResetDialogUser] = useState<string | null>(null);
   const [newPassword,      setNewPassword]     = useState('');
   const [showResetPass,    setShowResetPass]   = useState(false);
+
+  // ── Delete confirmation dialog ────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting,     setDeleting]     = useState(false);
 
   const resetForm = () => {
     setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller' });
@@ -92,6 +96,19 @@ export default function Users() {
     toast.success('Password reset successfully.');
     setResetDialogUser(null);
     setNewPassword('');
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const ok = await removeUser(deleteTarget.id);
+    setDeleting(false);
+    if (ok) {
+      toast.success(`"${deleteTarget.name}" has been deleted.`);
+    } else {
+      toast.error('Failed to delete user. Please try again.');
+    }
+    setDeleteTarget(null);
   };
 
   const stats = {
@@ -303,7 +320,7 @@ export default function Users() {
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            className={`cursor-pointer text-xs ${user.status === 'Active' ? 'text-red-600 focus:text-red-600 focus:bg-red-50' : 'text-green-600 focus:text-green-600 focus:bg-green-50'}`}
+                            className={`cursor-pointer text-xs ${user.status === 'Active' ? 'text-orange-600 focus:text-orange-600 focus:bg-orange-50' : 'text-green-600 focus:text-green-600 focus:bg-green-50'}`}
                             onClick={() => handleToggleStatus(user.id, user.name, user.status)}
                           >
                             {user.status === 'Active' ? (
@@ -311,6 +328,14 @@ export default function Users() {
                             ) : (
                               <><CheckCircle className="w-3.5 h-3.5 mr-2" />Activate</>
                             )}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="cursor-pointer text-xs text-red-600 focus:text-red-600 focus:bg-red-50"
+                            onClick={() => setDeleteTarget({ id: user.id, name: user.name })}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-2" />
+                            Delete User
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -329,7 +354,7 @@ export default function Users() {
         </div>
       </div>
 
-      {/* Reset password dialog (standalone, not nested) */}
+      {/* Reset password dialog */}
       <Dialog open={!!resetDialogUser} onOpenChange={open => { if (!open) setResetDialogUser(null); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -365,6 +390,54 @@ export default function Users() {
               className="bg-blue-500 hover:bg-blue-600 text-white text-sm"
             >
               Save New Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="w-5 h-5" />
+              Delete User
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-slate-600">
+              Are you sure you want to permanently delete{' '}
+              <strong className="text-slate-900">{deleteTarget?.name}</strong>?
+            </p>
+            <p className="text-xs text-slate-400 mt-2">
+              This action cannot be undone. The user will lose all access immediately.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              className="text-sm"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteUser}
+              disabled={deleting}
+              className="bg-red-500 hover:bg-red-600 text-white text-sm"
+            >
+              {deleting ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Deleting…
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Yes, Delete
+                </span>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -40,7 +40,7 @@ export default function Users() {
 
   // ── Add user dialog ────────────────────────────────────────────────────────
   const [dialogOpen,   setDialogOpen]   = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', role: 'Telecaller' as UserRole });
+  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', role: 'Telecaller' as UserRole, position: '' });
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [formError,    setFormError]    = useState('');
   const [submitting,   setSubmitting]   = useState(false);
@@ -51,8 +51,8 @@ export default function Users() {
   const [showResetPass,    setShowResetPass]   = useState(false);
 
   // ── Edit user dialog ──────────────────────────────────────────────────────
-  const [editTarget,   setEditTarget]   = useState<{ id: string; name: string; email: string; phone: string; role: UserRole } | null>(null);
-  const [editForm,     setEditForm]     = useState({ name: '', email: '', phone: '', role: 'Telecaller' as UserRole });
+  const [editTarget,   setEditTarget]   = useState<{ id: string; name: string; email: string; phone: string; role: UserRole; position: string } | null>(null);
+  const [editForm,     setEditForm]     = useState({ name: '', email: '', phone: '', role: 'Telecaller' as UserRole, position: '' });
   const [editError,    setEditError]    = useState('');
   const [editSaving,   setEditSaving]   = useState(false);
 
@@ -61,7 +61,7 @@ export default function Users() {
   const [deleting,     setDeleting]     = useState(false);
 
   const resetForm = () => {
-    setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller' });
+    setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller', position: '' });
     setFormError('');
     setShowNewPass(false);
   };
@@ -105,8 +105,8 @@ export default function Users() {
   };
 
   const openEditDialog = (user: typeof allUsers[0]) => {
-    setEditTarget({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? '', role: user.role });
-    setEditForm({ name: user.name, email: user.email, phone: user.phone ?? '', role: user.role });
+    setEditTarget({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '' });
+    setEditForm({ name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '' });
     setEditError('');
   };
 
@@ -122,6 +122,7 @@ export default function Users() {
       email: editForm.email.trim(),
       phone: editForm.phone.trim(),
       role:  editForm.role,
+      position: editForm.position.trim(),
     });
     setEditSaving(false);
 
@@ -235,6 +236,16 @@ export default function Users() {
               </div>
 
               <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">Position (optional)</Label>
+                <Input
+                  placeholder="e.g. Sales Executive"
+                  value={form.position}
+                  onChange={e => setForm(f => ({ ...f, position: e.target.value }))}
+                  className="border-slate-200 h-9 text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
                 <Label className="text-sm font-medium text-slate-700">Role</Label>
                 <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v as UserRole }))}>
                   <SelectTrigger className="h-9 border-slate-200 text-sm">
@@ -295,6 +306,7 @@ export default function Users() {
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Role</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Status</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Phone</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-5 py-3">Position</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Created</TableHead>
                 <TableHead className="text-right font-semibold text-slate-500 px-5 py-3">Actions</TableHead>
               </TableRow>
@@ -328,6 +340,10 @@ export default function Users() {
 
                   <TableCell className="px-5 py-3 text-xs text-slate-500">
                     {user.phone || <span className="text-slate-300">—</span>}
+                  </TableCell>
+
+                  <TableCell className="px-5 py-3 text-xs text-slate-500">
+                    {user.position || <span className="text-slate-300">—</span>}
                   </TableCell>
 
                   <TableCell className="px-5 py-3 text-xs text-slate-500">
@@ -449,6 +465,16 @@ export default function Users() {
                   <SelectItem value="Telecaller">Telecaller</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Position</Label>
+              <Input
+                placeholder="e.g. Team Lead"
+                value={editForm.position}
+                onChange={e => setEditForm(f => ({ ...f, position: e.target.value }))}
+                className="border-slate-200 h-9 text-sm"
+              />
             </div>
           </div>
 

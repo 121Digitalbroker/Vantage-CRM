@@ -18,12 +18,6 @@ interface HeaderProps {
   onMenuClick: () => void;
 }
 
-const roleBadgeColors: Record<string, string> = {
-  Admin:      'bg-blue-100 text-blue-700',
-  Manager:    'bg-purple-100 text-purple-700',
-  Telecaller: 'bg-emerald-100 text-emerald-700',
-};
-
 const avatarColors: Record<string, string> = {
   Admin:      'bg-blue-500',
   Manager:    'bg-purple-500',
@@ -53,10 +47,12 @@ export default function Header({ onMenuClick }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Role badge */}
-        <span className={`hidden sm:inline-flex text-xs font-semibold px-2.5 py-1 rounded-full ${roleBadgeColors[currentUser.role] ?? 'bg-gray-100 text-gray-600'}`}>
-          {currentUser.role}
-        </span>
+        {/* Position badge (if set by admin) */}
+        {currentUser.position?.trim() && (
+          <span className="hidden sm:inline-flex text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            {currentUser.position}
+          </span>
+        )}
 
         {/* Notifications */}
         <NotificationBell />
@@ -75,9 +71,11 @@ export default function Header({ onMenuClick }: HeaderProps) {
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-semibold leading-none">{currentUser.name}</p>
                 <p className="text-xs leading-none text-slate-500">{currentUser.email}</p>
-                <span className={`mt-1 text-[0.65rem] font-semibold px-1.5 py-0.5 rounded-full w-fit ${roleBadgeColors[currentUser.role] ?? 'bg-gray-100 text-gray-600'}`}>
-                  {currentUser.role}
-                </span>
+                {currentUser.position?.trim() && (
+                  <span className="mt-1 text-[0.65rem] font-semibold px-1.5 py-0.5 rounded-full w-fit bg-slate-100 text-slate-600">
+                    {currentUser.position}
+                  </span>
+                )}
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

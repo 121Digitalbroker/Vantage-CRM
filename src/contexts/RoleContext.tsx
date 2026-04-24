@@ -10,6 +10,7 @@ export interface AppUser {
   email: string;
   password: string;
   role: UserRole;
+  position?: string;
   initials: string;
   status: 'Active' | 'Inactive';
   phone?: string;
@@ -50,8 +51,8 @@ interface RoleContextType {
   isTelecaller: boolean;
   login: (email: string, password: string) => LoginResult;
   logout: () => void;
-  addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => Promise<{ success: boolean; error?: string }>;
-  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole }) => Promise<boolean>;
+  addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string }) => Promise<{ success: boolean; error?: string }>;
+  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string }) => Promise<boolean>;
   toggleUserStatus: (userId: string) => Promise<void>;
   resetPassword: (userId: string, newPassword: string) => Promise<void>;
   removeUser: (userId: string) => Promise<boolean>;
@@ -129,7 +130,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Admin actions ──────────────────────────────────────────────────────────
-  const addTelecaller = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => {
+  const addTelecaller = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string }) => {
     if (allUsers.find(u => u.email.toLowerCase() === data.email.toLowerCase()))
       return { success: false, error: 'A user with this email already exists.' };
 
@@ -141,6 +142,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       initials: makeInitials(data.name),
       status:   'Active' as const,
       phone:    data.phone,
+      position: data.position?.trim() || undefined,
     };
 
     const created = await createUser(newUserPayload);
@@ -174,7 +176,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole }): Promise<boolean> => {
+  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string }): Promise<boolean> => {
     const success = await updateUser(userId, updates);
     if (success) {
       setAllUsers(prev => prev.map(u => {
@@ -186,6 +188,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           email:    updates.email    ?? u.email,
           phone:    updates.phone    ?? u.phone,
           role:     updates.role     ?? u.role,
+          position: updates.position ?? u.position,
           initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
         };
       }));
@@ -199,6 +202,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
             email:    updates.email ?? prev.email,
             phone:    updates.phone ?? prev.phone,
             role:     updates.role  ?? prev.role,
+            position: updates.position ?? prev.position,
             initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
           };
           saveSession(updated);

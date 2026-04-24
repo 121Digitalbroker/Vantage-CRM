@@ -99,7 +99,9 @@ export default function Sidebar({ onClose }: SidebarProps) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-slate-900 truncate">{currentUser.name}</div>
-            <div className="text-xs text-slate-400">{currentUser.role}</div>
+            {currentUser.position?.trim() && (
+              <div className="text-xs text-slate-400 truncate">{currentUser.position}</div>
+            )}
           </div>
         </div>
         <button

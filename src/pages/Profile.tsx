@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { User, Mail, Phone, Lock, Eye, EyeOff, Save, ShieldCheck, KeyRound } from 'lucide-react';
+import { User, Mail, Phone, Lock, Eye, EyeOff, Save, Briefcase, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,12 +7,6 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useRole } from '@/src/contexts/RoleContext';
-
-const roleColors: Record<string, string> = {
-  Admin:      'bg-purple-50 text-purple-700 border-purple-200',
-  Manager:    'bg-blue-50 text-blue-700 border-blue-200',
-  Telecaller: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-};
 
 const avatarColors: Record<string, string> = {
   Admin:      'bg-blue-500',
@@ -97,10 +91,10 @@ export default function Profile() {
             <div className="pt-1">
               <CardTitle className="text-lg">{currentUser.name}</CardTitle>
               <CardDescription className="text-sm">{currentUser.email}</CardDescription>
-              <Badge variant="outline" className={`text-xs font-semibold mt-2 ${roleColors[currentUser.role] ?? ''}`}>
-                <ShieldCheck className="w-3 h-3 mr-1" />
-                {currentUser.role}
-              </Badge>
+              <div className="text-xs font-medium text-slate-500 mt-2 flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5" />
+                {currentUser.position?.trim() || 'Position not set'}
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -159,10 +153,9 @@ export default function Profile() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium text-slate-700">Role</Label>
+              <Label className="text-sm font-medium text-slate-700">Position</Label>
               <div className="h-10 px-3 border border-slate-200 rounded-md bg-slate-50 flex items-center text-sm text-slate-600">
-                {currentUser.role}
-                <span className="ml-2 text-xs text-slate-400">(contact admin to change)</span>
+                {currentUser.position?.trim() || 'Not set by admin'}
               </div>
             </div>
           </div>
@@ -330,10 +323,8 @@ export default function Profile() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-400 mb-1">Role</p>
-              <Badge variant="outline" className={`text-xs font-semibold ${roleColors[currentUser.role] ?? ''}`}>
-                {currentUser.role}
-              </Badge>
+              <p className="text-xs text-slate-400 mb-1">Position</p>
+              <p className="text-slate-600">{currentUser.position?.trim() || 'Not set'}</p>
             </div>
           </div>
         </CardContent>

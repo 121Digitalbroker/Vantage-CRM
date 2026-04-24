@@ -12,6 +12,7 @@ function mapToAppUser(row: any): AppUser {
     email: row.email,
     password: row.password,
     role: row.role,
+    position: row.position ?? undefined,
     status: row.status,
     phone: row.phone,
     initials: row.initials,
@@ -52,17 +53,31 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
     email: user.email.trim().toLowerCase(),
     password: user.password,
     role: user.role,
+    position: user.position ?? null,
     status: user.status,
     phone: user.phone,
     initials: user.initials || makeInitials(user.name),
     created_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('users')
     .insert(newUser)
     .select()
     .single();
+
+  // Backward compatibility: older DBs may not have the `position` column yet.
+  if (error && /position/i.test(error.message || '')) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { position, ...fallbackUser } = newUser;
+    const fallback = await supabase
+      .from('users')
+      .insert(fallbackUser)
+      .select()
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error || !data) {
     console.error('Failed to create user:', error);
@@ -91,19 +106,30 @@ export async function resetUserPassword(userId: string, newPassword: string): Pr
 
 export async function updateUser(
   userId: string,
-  updates: { name?: string; email?: string; phone?: string; role?: string }
+  updates: { name?: string; email?: string; phone?: string; role?: string; position?: string }
 ): Promise<boolean> {
   const payload: Record<string, string> = {};
   if (updates.name)  payload.name     = updates.name.trim();
   if (updates.email) payload.email    = updates.email.trim().toLowerCase();
   if (updates.phone !== undefined) payload.phone = updates.phone;
   if (updates.role)  payload.role     = updates.role;
+  if (updates.position !== undefined) payload.position = updates.position.trim();
   if (updates.name)  payload.initials = updates.name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from('users')
     .update(payload)
     .eq('id', userId);
+
+  if (error && /position/i.test(error.message || '')) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { position, ...fallbackPayload } = payload;
+    const fallback = await supabase
+      .from('users')
+      .update(fallbackPayload)
+      .eq('id', userId);
+    error = fallback.error;
+  }
 
   if (error) {
     console.error('Failed to update user:', error);

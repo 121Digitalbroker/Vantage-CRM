@@ -491,7 +491,8 @@ export default function Leads() {
           investmentBudget:  (data['your_investment_budget?'] || 'Not Specified') as InvestmentBudget,
           facebookLeadId:     fbLeadId,
           // Defaults
-          assignedUserId: isAdmin ? '' : currentUser.id,
+          // Telecaller imports are auto-assigned to the importing telecaller.
+          assignedUserId: isTelecaller ? currentUser.id : '',
           leadLevel:      'Warm'  as LeadLevel,
           status:         'New'   as LeadStatus,
           followUpDate:   new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -505,6 +506,7 @@ export default function Leads() {
 
       const parts: string[] = [];
       if (importedLeads.length > 0) parts.push(`✅ ${importedLeads.length} leads imported`);
+      if (isTelecaller && importedLeads.length > 0) parts.push('👤 Assigned to you automatically by CRM');
       if (skippedDuplicates > 0)    parts.push(`⚠️ ${skippedDuplicates} duplicates skipped`);
       if (skippedInvalid > 0)       parts.push(`❌ ${skippedInvalid} invalid rows skipped`);
       toast.success(parts.join(' · ') || 'No new leads found');

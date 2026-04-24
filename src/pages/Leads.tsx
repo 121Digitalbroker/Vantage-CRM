@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, isPast, isToday, parseISO, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -117,12 +117,13 @@ const blankLeadForm = () => ({
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function Leads() {
   const navigate  = useNavigate();
+  const [searchParams] = useSearchParams();
   const { currentUser, telecallers, allUsers, isAdmin, isTelecaller } = useRole();
 
   const [leads,        setLeads]       = useState<Lead[]>([]);
   const [loading,      setLoading]     = useState(true);
   const [error,        setError]       = useState<string | null>(null);
-  const [searchTerm,   setSearchTerm]  = useState('');
+  const [searchTerm,   setSearchTerm]  = useState(searchParams.get('q') ?? '');
   const [statusFilter, setStatusFilter] = useState('All');
   const [levelFilter,  setLevelFilter]  = useState('All');
   const [assigneeFilter, setAssigneeFilter] = useState('All');
@@ -164,6 +165,10 @@ export default function Leads() {
   };
 
   useEffect(() => { loadLeads(); }, [currentUser.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setSearchTerm(searchParams.get('q') ?? '');
+  }, [searchParams]);
 
   // ── Sort toggle ──────────────────────────────────────────────────────────
   const toggleSort = (field: SortField) => {

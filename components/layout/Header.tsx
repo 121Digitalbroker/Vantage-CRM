@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Menu, Search, User, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,8 +28,15 @@ const avatarColors: Record<string, string> = {
 export default function Header({ onMenuClick }: HeaderProps) {
   const navigate = useNavigate();
   const { currentUser, logout } = useRole();
+  const [globalSearch, setGlobalSearch] = useState('');
 
   if (!currentUser) return null;
+
+  const handleGlobalSearch = () => {
+    const q = globalSearch.trim();
+    if (!q) return;
+    navigate(`/leads?q=${encodeURIComponent(q)}`);
+  };
 
   return (
     <header className="h-16 px-6 bg-white border-b border-slate-200 flex items-center justify-between sticky top-0 z-30">
@@ -42,6 +50,14 @@ export default function Header({ onMenuClick }: HeaderProps) {
             type="search"
             placeholder="Search leads, projects…"
             className="pl-9 bg-slate-100 border-slate-200 rounded-md focus-visible:ring-blue-500 focus-visible:bg-white text-sm"
+            value={globalSearch}
+            onChange={e => setGlobalSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleGlobalSearch();
+              }
+            }}
           />
         </div>
       </div>

@@ -29,15 +29,17 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
 // ── Guard: redirect admin away from /login ───────────────────────────────────
 function PublicRoute({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isTelecaller } = useRole();
+  const { isAuthenticated, isTelecaller, isManager } = useRole();
   if (isAuthenticated) {
-    return <Navigate to={isTelecaller ? '/my-dashboard' : '/dashboard'} replace />;
+    if (isTelecaller) return <Navigate to="/my-dashboard" replace />;
+    if (isManager) return <Navigate to="/leads" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   return <>{children}</>;
 }
 
 function AppRoutes() {
-  const { isTelecaller, isAdmin } = useRole();
+  const { isTelecaller, isAdmin, isManager } = useRole();
 
   return (
     <Routes>
@@ -63,14 +65,14 @@ function AppRoutes() {
         {/* Root → role-based home */}
         <Route
           index
-          element={<Navigate to={isTelecaller ? '/my-dashboard' : '/dashboard'} replace />}
+          element={<Navigate to={isTelecaller ? '/my-dashboard' : isManager ? '/leads' : '/dashboard'} replace />}
         />
 
         {/* Admin / Manager routes */}
-        <Route path="dashboard"    element={isAdmin    ? <Dashboard />           : <Navigate to="/my-dashboard" replace />} />
-        <Route path="users"        element={isAdmin    ? <Users />               : <Navigate to="/my-dashboard" replace />} />
-        <Route path="campaigns"    element={isAdmin    ? <CampaignSources />     : <Navigate to="/my-dashboard" replace />} />
-        <Route path="reports"      element={isAdmin    ? <Reports />             : <Navigate to="/my-dashboard" replace />} />
+        <Route path="dashboard"    element={isAdmin && !isManager ? <Dashboard />       : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="users"        element={isAdmin && !isManager ? <Users />           : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="campaigns"    element={isAdmin && !isManager ? <CampaignSources /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="reports"      element={isAdmin && !isManager ? <Reports />         : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
 
         {/* Telecaller route */}
         <Route path="my-dashboard" element={isTelecaller ? <TelecallerDashboard /> : <Navigate to="/dashboard" replace />} />
@@ -78,12 +80,12 @@ function AppRoutes() {
         {/* Shared routes */}
         <Route path="leads"        element={<Leads />} />
         <Route path="leads/:id"    element={<LeadDetails />} />
-        <Route path="follow-ups"   element={<FollowUps />} />
-        <Route path="settings"     element={<Settings />} />
-        <Route path="profile"      element={<Profile />} />
+        <Route path="follow-ups"   element={isManager ? <Navigate to="/leads" replace /> : <FollowUps />} />
+        <Route path="settings"     element={isManager ? <Navigate to="/leads" replace /> : <Settings />} />
+        <Route path="profile"      element={isManager ? <Navigate to="/leads" replace /> : <Profile />} />
 
         {/* Catch-all */}
-        <Route path="*" element={<Navigate to={isTelecaller ? '/my-dashboard' : '/dashboard'} replace />} />
+        <Route path="*" element={<Navigate to={isTelecaller ? '/my-dashboard' : isManager ? '/leads' : '/dashboard'} replace />} />
       </Route>
 
       {/* Absolute catch-all */}

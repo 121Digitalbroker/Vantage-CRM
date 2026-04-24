@@ -21,7 +21,7 @@ interface SidebarProps {
 
 export default function Sidebar({ onClose }: SidebarProps) {
   const navigate = useNavigate();
-  const { currentUser, logout, isAdmin, isTelecaller } = useRole();
+  const { currentUser, logout, isManager, isTelecaller } = useRole();
 
   if (!currentUser) return null;
 
@@ -41,7 +41,11 @@ export default function Sidebar({ onClose }: SidebarProps) {
     { name: 'Follow-ups',   path: '/follow-ups',    icon: CalendarDays },
   ];
 
-  const navItems = isTelecaller ? telecallerNav : adminNav;
+  const managerNav = [
+    { name: 'Leads', path: '/leads', icon: Users },
+  ];
+
+  const navItems = isTelecaller ? telecallerNav : isManager ? managerNav : adminNav;
 
   const roleColor: Record<string, string> = {
     Admin:      'bg-blue-500',

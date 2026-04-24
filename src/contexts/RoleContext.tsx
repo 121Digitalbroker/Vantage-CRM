@@ -46,6 +46,7 @@ interface RoleContextType {
   telecallers: AppUser[];
   isAuthenticated: boolean;
   isAdmin: boolean;
+  isManager: boolean;
   isTelecaller: boolean;
   login: (email: string, password: string) => LoginResult;
   logout: () => void;
@@ -235,6 +236,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         telecallers,
         isAuthenticated: currentUser !== null,
         isAdmin:      currentUser?.role === 'Admin' || currentUser?.role === 'Manager',
+        isManager:    currentUser?.role === 'Manager',
         isTelecaller: currentUser?.role === 'Telecaller',
         login,
         logout,

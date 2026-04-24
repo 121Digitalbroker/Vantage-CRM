@@ -1,4 +1,4 @@
-import { Menu, Search } from 'lucide-react';
+import { Menu, Search, User, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -81,11 +81,23 @@ export default function Header({ onMenuClick }: HeaderProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer text-sm gap-2"
+              onClick={() => navigate('/profile')}
+            >
+              <User className="w-4 h-4 text-slate-400" />
+              Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer text-sm gap-2"
+              onClick={() => navigate('/settings')}
+            >
+              <SettingsIcon className="w-4 h-4 text-slate-400" />
+              Settings
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
+              className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer text-sm gap-2"
               onClick={() => { logout(); navigate('/login'); }}
             >
               Log out

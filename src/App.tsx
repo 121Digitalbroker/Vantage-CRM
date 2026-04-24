@@ -16,6 +16,7 @@ import Reports from './pages/Reports';
 import FollowUps from './pages/FollowUps';
 import CampaignSources from './pages/CampaignSources';
 import TelecallerDashboard from './pages/TelecallerDashboard';
+import Profile from './pages/Profile';
 import { RoleProvider, useRole } from './contexts/RoleContext';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Route path="leads/:id"    element={<LeadDetails />} />
         <Route path="follow-ups"   element={<FollowUps />} />
         <Route path="settings"     element={<Settings />} />
+        <Route path="profile"      element={<Profile />} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to={isTelecaller ? '/my-dashboard' : '/dashboard'} replace />} />

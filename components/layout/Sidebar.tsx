@@ -52,12 +52,10 @@ export default function Sidebar({ onClose }: SidebarProps) {
   return (
     <div className="flex flex-col h-full bg-white shadow-sm">
       {/* Logo */}
-      <div className="flex items-center justify-between p-6 border-b border-slate-200">
+      <div className="flex items-center justify-between p-5 border-b border-slate-200">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm">
-            EF
-          </div>
-          <span className="font-bold text-xl text-slate-900 tracking-tight">EstatesCRM</span>
+          <img src="/logo.svg" alt="Vantage CRM" className="w-8 h-8 rounded-lg shadow-sm shadow-blue-500/20" />
+          <span className="font-bold text-lg text-slate-900 tracking-tight">Vantage CRM</span>
         </div>
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={onClose}>
           <X className="h-5 w-5" />

@@ -36,7 +36,7 @@ const roleAvatarColors: Record<string, string> = {
 };
 
 export default function Users() {
-  const { allUsers, addTelecaller, toggleUserStatus, resetPassword, removeUser } = useRole();
+  const { allUsers, addTelecaller, editUser, toggleUserStatus, resetPassword, removeUser } = useRole();
 
   // ── Add user dialog ────────────────────────────────────────────────────────
   const [dialogOpen,   setDialogOpen]   = useState(false);
@@ -49,6 +49,12 @@ export default function Users() {
   const [resetDialogUser, setResetDialogUser] = useState<string | null>(null);
   const [newPassword,      setNewPassword]     = useState('');
   const [showResetPass,    setShowResetPass]   = useState(false);
+
+  // ── Edit user dialog ──────────────────────────────────────────────────────
+  const [editTarget,   setEditTarget]   = useState<{ id: string; name: string; email: string; phone: string; role: UserRole } | null>(null);
+  const [editForm,     setEditForm]     = useState({ name: '', email: '', phone: '', role: 'Telecaller' as UserRole });
+  const [editError,    setEditError]    = useState('');
+  const [editSaving,   setEditSaving]   = useState(false);
 
   // ── Delete confirmation dialog ────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -96,6 +102,35 @@ export default function Users() {
     toast.success('Password reset successfully.');
     setResetDialogUser(null);
     setNewPassword('');
+  };
+
+  const openEditDialog = (user: typeof allUsers[0]) => {
+    setEditTarget({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? '', role: user.role });
+    setEditForm({ name: user.name, email: user.email, phone: user.phone ?? '', role: user.role });
+    setEditError('');
+  };
+
+  const handleEditSave = async () => {
+    if (!editTarget) return;
+    if (!editForm.name.trim())  { setEditError('Name is required.'); return; }
+    if (!editForm.email.trim()) { setEditError('Email is required.'); return; }
+    if (!/\S+@\S+\.\S+/.test(editForm.email)) { setEditError('Please enter a valid email.'); return; }
+
+    setEditSaving(true);
+    const ok = await editUser(editTarget.id, {
+      name:  editForm.name.trim(),
+      email: editForm.email.trim(),
+      phone: editForm.phone.trim(),
+      role:  editForm.role,
+    });
+    setEditSaving(false);
+
+    if (ok) {
+      toast.success(`${editForm.name}'s details updated successfully.`);
+      setEditTarget(null);
+    } else {
+      setEditError('Failed to save changes. Please try again.');
+    }
   };
 
   const handleDeleteUser = async () => {
@@ -314,7 +349,7 @@ export default function Users() {
                             <Key className="w-3.5 h-3.5 mr-2 text-slate-500" />
                             Reset Password
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => toast.info('Edit coming soon')}>
+                          <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openEditDialog(user)}>
                             <Edit className="w-3.5 h-3.5 mr-2 text-slate-500" />
                             Edit Details
                           </DropdownMenuItem>
@@ -353,6 +388,94 @@ export default function Users() {
           {allUsers.length} users total · Telecallers can log in with their email and password
         </div>
       </div>
+
+      {/* Edit user dialog */}
+      <Dialog open={!!editTarget} onOpenChange={open => { if (!open) setEditTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="w-4 h-4 text-blue-500" />
+              Edit User Details
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {editError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
+                {editError}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Full Name *</Label>
+              <Input
+                placeholder="e.g. Ravi Kumar"
+                value={editForm.name}
+                onChange={e => { setEditForm(f => ({ ...f, name: e.target.value })); setEditError(''); }}
+                className="border-slate-200 h-9 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Email Address *</Label>
+              <Input
+                type="email"
+                placeholder="user@vantagerealtors.in"
+                value={editForm.email}
+                onChange={e => { setEditForm(f => ({ ...f, email: e.target.value })); setEditError(''); }}
+                className="border-slate-200 h-9 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Phone</Label>
+              <Input
+                placeholder="+91 98765-00000"
+                value={editForm.phone}
+                onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                className="border-slate-200 h-9 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-slate-700">Role</Label>
+              <Select value={editForm.role} onValueChange={v => setEditForm(f => ({ ...f, role: v as UserRole }))}>
+                <SelectTrigger className="h-9 border-slate-200 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Admin">Admin</SelectItem>
+                  <SelectItem value="Manager">Manager</SelectItem>
+                  <SelectItem value="Telecaller">Telecaller</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              className="text-sm"
+              onClick={() => setEditTarget(null)}
+              disabled={editSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleEditSave}
+              disabled={editSaving}
+              className="bg-blue-500 hover:bg-blue-600 text-white text-sm"
+            >
+              {editSaving ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Saving…
+                </span>
+              ) : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reset password dialog */}
       <Dialog open={!!resetDialogUser} onOpenChange={open => { if (!open) setResetDialogUser(null); }}>

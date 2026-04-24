@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { fetchUsers, createUser, updateUserStatus, resetUserPassword, deleteUser } from '@/src/services/usersService';
+import { fetchUsers, createUser, updateUserStatus, resetUserPassword, updateUser, deleteUser } from '@/src/services/usersService';
 import { supabase } from '@/lib/supabaseClient';
 
 export type UserRole = 'Admin' | 'Manager' | 'Telecaller';
@@ -50,6 +50,7 @@ interface RoleContextType {
   login: (email: string, password: string) => LoginResult;
   logout: () => void;
   addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => Promise<{ success: boolean; error?: string }>;
+  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole }) => Promise<boolean>;
   toggleUserStatus: (userId: string) => Promise<void>;
   resetPassword: (userId: string, newPassword: string) => Promise<void>;
   removeUser: (userId: string) => Promise<boolean>;
@@ -172,6 +173,41 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole }): Promise<boolean> => {
+    const success = await updateUser(userId, updates);
+    if (success) {
+      setAllUsers(prev => prev.map(u => {
+        if (u.id !== userId) return u;
+        const newName = updates.name ?? u.name;
+        return {
+          ...u,
+          name:     newName,
+          email:    updates.email    ?? u.email,
+          phone:    updates.phone    ?? u.phone,
+          role:     updates.role     ?? u.role,
+          initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
+        };
+      }));
+      if (currentUser?.id === userId) {
+        setCurrentUser(prev => {
+          if (!prev) return prev;
+          const newName = updates.name ?? prev.name;
+          const updated = {
+            ...prev,
+            name:     newName,
+            email:    updates.email ?? prev.email,
+            phone:    updates.phone ?? prev.phone,
+            role:     updates.role  ?? prev.role,
+            initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
+          };
+          saveSession(updated);
+          return updated;
+        });
+      }
+    }
+    return success;
+  };
+
   const removeUser = async (userId: string): Promise<boolean> => {
     const success = await deleteUser(userId);
     if (success) {
@@ -203,6 +239,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         addTelecaller,
+        editUser,
         toggleUserStatus,
         resetPassword,
         removeUser,

@@ -89,6 +89,29 @@ export async function resetUserPassword(userId: string, newPassword: string): Pr
   return !error;
 }
 
+export async function updateUser(
+  userId: string,
+  updates: { name?: string; email?: string; phone?: string; role?: string }
+): Promise<boolean> {
+  const payload: Record<string, string> = {};
+  if (updates.name)  payload.name     = updates.name.trim();
+  if (updates.email) payload.email    = updates.email.trim().toLowerCase();
+  if (updates.phone !== undefined) payload.phone = updates.phone;
+  if (updates.role)  payload.role     = updates.role;
+  if (updates.name)  payload.initials = updates.name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+  const { error } = await supabase
+    .from('users')
+    .update(payload)
+    .eq('id', userId);
+
+  if (error) {
+    console.error('Failed to update user:', error);
+    return false;
+  }
+  return true;
+}
+
 export async function deleteUser(userId: string): Promise<boolean> {
   const { error } = await supabase
     .from('users')

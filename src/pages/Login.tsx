@@ -42,9 +42,11 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-3">
-            <div className="w-11 h-11 rounded-xl bg-blue-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/30">
-              VC
-            </div>
+            <img
+              src="/logo.svg"
+              alt="Vantage CRM"
+              className="w-11 h-11 rounded-xl shadow-lg shadow-blue-500/30"
+            />
             <span className="text-2xl font-bold text-slate-900 tracking-tight">Vantage CRM</span>
           </div>
           <p className="text-sm text-slate-500 mt-1">Real estate telecaller management platform</p>

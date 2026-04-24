@@ -107,7 +107,7 @@ const getSourceLabel = (source: string) => {
 };
 
 const blankLeadForm = () => ({
-  clientName: '', phoneNumber: '', email: '', project: PROJECTS[0],
+  clientName: '', phoneNumber: '', email: '', project: '',
   leadSource: LEAD_SOURCES[0], campaignName: '', adsetName: '', adName: '',
   assignedUserId: '', leadLevel: 'Warm' as LeadLevel, status: 'New' as LeadStatus,
   followUpDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
@@ -607,10 +607,12 @@ export default function Leads() {
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">Project</Label>
-          <Select value={formData.project} onValueChange={v => setFormData(f => ({ ...f, project: v }))}>
-            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>{PROJECTS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-          </Select>
+          <Input
+            placeholder="Type project name"
+            value={formData.project}
+            onChange={e => setFormData(f => ({ ...f, project: e.target.value }))}
+            className="h-9 text-sm"
+          />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs font-medium">Lead Source</Label>

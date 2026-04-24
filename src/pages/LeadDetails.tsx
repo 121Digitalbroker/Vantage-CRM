@@ -4,7 +4,7 @@ import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { 
   ArrowLeft, Phone, Mail, CalendarDays, Clock, MessageSquare,
-  CheckCircle2, Flame, RefreshCw, Edit, Save, X, Plus, Trash2, Check, Users, ArrowRight,
+  CheckCircle2, Flame, RefreshCw, Edit, Save, X, Plus, Trash2, Check, Users, ArrowRight, History,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -17,14 +17,14 @@ import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Lead, LeadStatus, LeadLevel } from '@/types';
 import {
-  fetchLead, updateLead, getNotes, addNote, getFollowUps, addFollowUp, deleteFollowUp, completeFollowUp, getAssignmentHistory,
+  fetchLead, updateLeadWithAudit, getNotes, addNote, getFollowUps, addFollowUp, deleteFollowUp, completeFollowUp, getAssignmentHistory, getStatusHistory,
 } from '@/src/services/leadsService';
-import type { DemoNote, DemoFollowUp, AssignmentHistory } from '@/src/services/leadsService';
+import type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory } from '@/src/services/leadsService';
 import { useRole } from '@/src/contexts/RoleContext';
 
 const LEAD_STATUSES: LeadStatus[] = [
-  'New', 'Contacted', 'Interested', 'Site Visit Scheduled', 'Visit Completed',
-  'Negotiation', 'Booked', 'Not Interested', 'Wrong Number', 'Low Budget',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'Not Interested', 'Wrong Number', 'Low Budget',
 ];
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 
@@ -38,12 +38,16 @@ const getLevelIcon = (level: LeadLevel) => {
 
 const getStatusBadgeColor = (status: LeadStatus) => {
   switch (status) {
-    case 'Negotiation': return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'Booked':      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-    case 'New':         return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'Contacted':   return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-    case 'Interested':  return 'bg-purple-100 text-purple-800 border-purple-200';
-    default:            return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'New':                  return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'Interested':           return 'bg-purple-100 text-purple-800 border-purple-200';
+    case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-800 border-cyan-200';
+    case 'Busy':                 return 'bg-amber-100 text-amber-900 border-amber-200';
+    case 'Not Reachable':        return 'bg-slate-200 text-slate-800 border-slate-300';
+    case 'Fake Query':           return 'bg-rose-100 text-rose-900 border-rose-200';
+    case 'Not Interested':      return 'bg-red-100 text-red-800 border-red-200';
+    case 'Wrong Number':         return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'Low Budget':            return 'bg-yellow-100 text-yellow-900 border-yellow-200';
+    default:                     return 'bg-gray-100 text-gray-800 border-gray-200';
   }
 };
 
@@ -57,6 +61,7 @@ export default function LeadDetails() {
   const [notes, setNotes] = useState<DemoNote[]>([]);
   const [followUps, setFollowUps] = useState<DemoFollowUp[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([]);
+  const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([]);
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
@@ -77,11 +82,12 @@ export default function LeadDetails() {
     if (!id) return;
     setLoading(true);
     try {
-      const [leadData, notesData, fuData, historyData] = await Promise.all([
+      const [leadData, notesData, fuData, historyData, statusHistoryData] = await Promise.all([
         fetchLead(id),
         getNotes(id),
         getFollowUps(id),
         getAssignmentHistory(id),
+        getStatusHistory(id),
       ]);
       if (!leadData) { toast.error('Lead not found'); navigate('/leads'); return; }
       setLead(leadData);
@@ -89,6 +95,7 @@ export default function LeadDetails() {
       setNotes(notesData);
       setFollowUps(fuData);
       setAssignmentHistory(historyData);
+      setStatusHistory(statusHistoryData);
     } catch {
       toast.error('Failed to load lead');
     } finally {
@@ -105,6 +112,8 @@ export default function LeadDetails() {
       const n = await addNote(id, noteText.trim(), currentUser.name);
       setNotes(prev => [n, ...prev]);
       setNoteText('');
+      const contacted = new Date().toISOString();
+      setLead(prev => (prev ? { ...prev, lastContactedAt: contacted } : prev));
       toast.success('Note added');
     } catch {
       toast.error('Failed to add note');
@@ -117,8 +126,15 @@ export default function LeadDetails() {
     if (!id || !lead) return;
     setSavingEdit(true);
     try {
-      const updated = await updateLead(id, { status: editData.status, leadLevel: editData.leadLevel });
+      const updated = await updateLeadWithAudit(
+        id,
+        { status: editData.status, leadLevel: editData.leadLevel },
+        currentUser.name
+      );
       setLead(updated);
+      if (lead.status !== updated.status) {
+        setStatusHistory(await getStatusHistory(id));
+      }
       setEditing(false);
       toast.success('Lead updated');
     } catch {
@@ -140,7 +156,8 @@ export default function LeadDetails() {
       setFollowUps(prev => [...prev, fu]);
       setShowFuForm(false);
       setFuForm({ type: 'Call', date: '', notes: '' });
-      if (lead) setLead({ ...lead, followUpDate: fu.date });
+      const now = new Date().toISOString();
+      if (lead) setLead({ ...lead, followUpDate: fu.date, lastContactedAt: now });
       toast.success('Follow-up scheduled');
     } catch {
       toast.error('Failed to schedule');
@@ -168,6 +185,8 @@ export default function LeadDetails() {
           fu.id === followUpId ? { ...fu, completed: true } : fu
         )
       );
+      const now = new Date().toISOString();
+      setLead(prev => (prev ? { ...prev, lastContactedAt: now } : prev));
       toast.success('Follow-up marked as done ✓');
     } catch {
       toast.error('Failed to complete follow-up');
@@ -368,6 +387,7 @@ export default function LeadDetails() {
                 <TabsList className="bg-slate-100/50">
                   <TabsTrigger value="activity">Notes & Activity</TabsTrigger>
                   <TabsTrigger value="followups">Follow-ups ({followUps.length})</TabsTrigger>
+                  <TabsTrigger value="status">Status History ({statusHistory.length})</TabsTrigger>
                   <TabsTrigger value="history">Assignment History ({assignmentHistory.length})</TabsTrigger>
                 </TabsList>
               </div>
@@ -511,6 +531,46 @@ export default function LeadDetails() {
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* ── Status History tab ────────────────────────────────────── */}
+              <TabsContent value="status" className="p-6 m-0">
+                <h3 className="font-semibold text-slate-900 mb-4">Status Change History</h3>
+                {statusHistory.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 py-8">No status updates yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {statusHistory.map((record, idx) => (
+                      <div key={record.id} className="relative border border-slate-200 rounded-lg p-4 bg-white">
+                        {idx < statusHistory.length - 1 && (
+                          <div className="absolute left-8 top-full h-3 w-0.5 bg-slate-200"></div>
+                        )}
+                        <div className="flex gap-3 items-start">
+                          <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center flex-shrink-0">
+                            <History className="w-4 h-4 text-purple-600" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.fromStatus)}`}>
+                                {record.fromStatus}
+                              </Badge>
+                              <ArrowRight className="w-4 h-4 text-slate-400" />
+                              <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.toStatus)}`}>
+                                {record.toStatus}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Updated by <span className="font-medium">{record.updatedBy}</span>
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {format(parseISO(record.createdAt), 'MMM d, yyyy h:mm a')}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     ))}

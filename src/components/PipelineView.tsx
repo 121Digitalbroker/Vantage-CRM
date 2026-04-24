@@ -20,22 +20,22 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Lead, LeadStatus } from '@/types';
-import { updateLead } from '@/src/services/leadsService';
+import { updateLeadWithAudit } from '@/src/services/leadsService';
 import { useRole } from '@/src/contexts/RoleContext';
 import { useNavigate } from 'react-router-dom';
 
-// ── Pipeline stages — maps directly to your existing LeadStatus values ────────
+// ── Pipeline stages — includes all status options from the dropdown ───────────
 const PIPELINE_STAGES: { id: LeadStatus; label: string; color: string; bg: string; border: string }[] = [
-  { id: 'New',                  label: 'New',              color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200' },
-  { id: 'Contacted',            label: 'Contacted',        color: 'text-indigo-700', bg: 'bg-indigo-50',  border: 'border-indigo-200' },
-  { id: 'Interested',           label: 'Interested',       color: 'text-purple-700', bg: 'bg-purple-50',  border: 'border-purple-200' },
-  { id: 'Site Visit Scheduled', label: 'Site Visit',       color: 'text-cyan-700',   bg: 'bg-cyan-50',    border: 'border-cyan-200' },
-  { id: 'Visit Completed',      label: 'Visit Done',       color: 'text-teal-700',   bg: 'bg-teal-50',    border: 'border-teal-200' },
-  { id: 'Negotiation',          label: 'Negotiation',      color: 'text-orange-700', bg: 'bg-orange-50',  border: 'border-orange-200' },
-  { id: 'Booked',               label: 'Booked ✓',         color: 'text-emerald-700',bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  { id: 'New',                  label: 'New',               color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
+  { id: 'Interested',           label: 'Interested',        color: 'text-purple-700',  bg: 'bg-purple-50',  border: 'border-purple-200' },
+  { id: 'Site Visit Scheduled', label: 'Site Visit',        color: 'text-cyan-700',    bg: 'bg-cyan-50',    border: 'border-cyan-200' },
+  { id: 'Busy',                 label: 'Busy',              color: 'text-amber-800',   bg: 'bg-amber-50',   border: 'border-amber-200' },
+  { id: 'Not Reachable',        label: 'Not Reachable',     color: 'text-slate-700',   bg: 'bg-slate-100',  border: 'border-slate-200' },
+  { id: 'Fake Query',           label: 'Fake Query',        color: 'text-rose-800',    bg: 'bg-rose-50',    border: 'border-rose-200' },
+  { id: 'Not Interested',       label: 'Not Interested',    color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+  { id: 'Wrong Number',         label: 'Wrong Number',      color: 'text-gray-700',    bg: 'bg-gray-50',    border: 'border-gray-200' },
+  { id: 'Low Budget',           label: 'Low Budget',        color: 'text-yellow-700',  bg: 'bg-yellow-50',  border: 'border-yellow-200' },
 ];
-
-const DEAD_STAGES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget'];
 
 const getLevelDot = (level: string) => {
   switch (level) {
@@ -163,7 +163,7 @@ interface PipelineViewProps {
 }
 
 export default function PipelineView({ leads, onLeadsChange }: PipelineViewProps) {
-  const { allUsers, telecallers } = useRole();
+  const { currentUser, allUsers, telecallers } = useRole();
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const getUserName = (id: string) => {
@@ -223,15 +223,13 @@ export default function PipelineView({ leads, onLeadsChange }: PipelineViewProps
 
     // Persist to store/Supabase
     try {
-      await updateLead(leadId, { status: targetStage });
+      await updateLeadWithAudit(leadId, { status: targetStage }, currentUser.name);
       toast.success(`Moved to "${targetStage}"`);
     } catch {
       toast.error('Failed to update stage');
       onLeadsChange(leads); // Revert
     }
   };
-
-  const deadLeads = leads.filter(l => DEAD_STAGES.includes(l.status));
 
   return (
     <div className="space-y-4">
@@ -260,36 +258,6 @@ export default function PipelineView({ leads, onLeadsChange }: PipelineViewProps
           ) : null}
         </DragOverlay>
       </DndContext>
-
-      {/* Dead leads — collapsed at bottom */}
-      {deadLeads.length > 0 && (
-        <details className="bg-slate-100 rounded-xl border border-slate-200 px-4 py-3">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-500 select-none list-none flex items-center gap-2">
-            <span className="text-slate-400">▸</span>
-            Inactive Leads
-            <span className="text-xs font-normal bg-slate-200 px-2 py-0.5 rounded-full">{deadLeads.length}</span>
-          </summary>
-          <div className="mt-3 flex flex-wrap gap-3 max-h-[300px] overflow-y-auto">
-            {DEAD_STAGES.map(stage => {
-              const stageLeads = deadLeads.filter(l => l.status === stage);
-              if (stageLeads.length === 0) return null;
-              return (
-                <div key={stage} className="min-w-[200px]">
-                  <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">{stage} ({stageLeads.length})</p>
-                  <div className="space-y-2">
-                    {stageLeads.map(lead => (
-                      <div key={lead.id} className="bg-white border border-slate-200 rounded-lg p-2.5 opacity-60">
-                        <p className="text-sm font-semibold text-slate-700">{lead.clientName}</p>
-                        <p className="text-xs text-slate-400">{lead.project}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      )}
     </div>
   );
 }

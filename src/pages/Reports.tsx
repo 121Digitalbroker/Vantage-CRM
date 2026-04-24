@@ -47,7 +47,7 @@ export default function Reports() {
     return telecallers.map(t => {
       const assigned = leads.filter(l => l.assignedUserId === t.id);
       const total = assigned.length;
-      const converted = assigned.filter(l => l.status === 'Booked').length;
+      const converted = assigned.filter(l => l.status === 'Site Visit Scheduled').length;
       const rate = total > 0 ? (converted / total) * 100 : 0;
       return { 
         name: t.name.split(' ')[0], 
@@ -91,7 +91,7 @@ export default function Reports() {
         
         if (!groups[key]) groups[key] = { total: 0, booked: 0, date: sortDate };
         groups[key].total += 1;
-        if (l.status === 'Booked') groups[key].booked += 1;
+        if (l.status === 'Site Visit Scheduled') groups[key].booked += 1;
       } catch { /* ignore bad dates */ }
     });
 
@@ -255,11 +255,11 @@ export default function Reports() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total Booked</p>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Visits scheduled</p>
                 <p className="text-2xl font-bold text-emerald-600 mt-1">
-                  {leads.filter(l => l.status === 'Booked').length}
+                  {leads.filter(l => l.status === 'Site Visit Scheduled').length}
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5">converted leads</p>
+                <p className="text-xs text-slate-400 mt-0.5">leads with visit on calendar</p>
               </div>
               <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center">
                 <UserCheck className="w-5 h-5 text-emerald-500" />
@@ -290,7 +290,7 @@ export default function Reports() {
         <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
           <CardHeader className="border-b border-slate-200 py-4">
             <CardTitle className="text-base font-semibold">Telecaller Conversion Rate</CardTitle>
-            <CardDescription>Percentage of assigned leads converted to "Booked"</CardDescription>
+            <CardDescription>Percentage of assigned leads with status &quot;Site Visit Scheduled&quot;</CardDescription>
           </CardHeader>
           <CardContent className="p-6 h-[300px] overflow-y-auto">
             {telecallerPerformance.length === 0 ? (
@@ -453,7 +453,7 @@ export default function Reports() {
         <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
           <CardHeader className="border-b border-slate-200 py-4">
             <CardTitle className="text-base font-semibold">Conversion Rate Trends</CardTitle>
-            <CardDescription>Percentage of leads booked ({timeframe.toLowerCase()}ly)</CardDescription>
+            <CardDescription>Percentage of leads with visit scheduled ({timeframe.toLowerCase()}ly)</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] p-6">
             <ResponsiveContainer width="100%" height="100%">

@@ -38,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Lead, LeadStatus, LeadLevel } from '@/types';
-import { fetchLeads, updateLead, addNote, addFollowUp, createLead, isAssignmentExpired } from '@/src/services/leadsService';
+import { fetchLeads, updateLead, updateLeadWithAudit, addNote, addFollowUp, createLead, isAssignmentExpired } from '@/src/services/leadsService';
 import { useRole } from '@/src/contexts/RoleContext';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -50,9 +50,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const LEAD_STATUSES: LeadStatus[] = [
-  'New', 'Contacted', 'Interested', 'Site Visit Scheduled',
-  'Visit Completed', 'Negotiation', 'Booked', 'Not Interested',
-  'Wrong Number', 'Low Budget',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'Not Interested', 'Wrong Number', 'Low Budget',
 ];
 
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
@@ -69,12 +68,11 @@ const blankLeadForm = () => ({
 const getStatusColors = (status: LeadStatus) => {
   switch (status) {
     case 'New':                   return 'bg-blue-100 text-blue-700';
-    case 'Contacted':             return 'bg-indigo-100 text-indigo-700';
     case 'Interested':            return 'bg-purple-100 text-purple-700';
     case 'Site Visit Scheduled':  return 'bg-cyan-100 text-cyan-700';
-    case 'Visit Completed':       return 'bg-teal-100 text-teal-700';
-    case 'Negotiation':           return 'bg-orange-100 text-orange-700';
-    case 'Booked':                return 'bg-emerald-100 text-emerald-700';
+    case 'Busy':                  return 'bg-amber-100 text-amber-800';
+    case 'Not Reachable':         return 'bg-slate-200 text-slate-700';
+    case 'Fake Query':            return 'bg-rose-100 text-rose-800';
     case 'Not Interested':        return 'bg-red-100 text-red-700';
     case 'Wrong Number':          return 'bg-gray-100 text-gray-600';
     case 'Low Budget':            return 'bg-yellow-100 text-yellow-700';
@@ -158,8 +156,8 @@ export default function TelecallerDashboard() {
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
     try {
-      await updateLead(leadId, { status });
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status } : l));
+      const updated = await updateLeadWithAudit(leadId, { status }, currentUser.name);
+      setLeads(prev => prev.map(l => l.id === leadId ? updated : l));
       toast.success(`Status updated to "${status}"`);
     } catch {
       toast.error('Failed to update status');
@@ -193,7 +191,10 @@ export default function TelecallerDashboard() {
     setSaving(true);
     try {
       await addFollowUp(targetLead.id, { type: fuData.type, date: new Date(fuData.date).toISOString(), notes: fuData.notes.trim() }, currentUser.name);
-      setLeads(prev => prev.map(l => l.id === targetLead.id ? { ...l, followUpDate: new Date(fuData.date).toISOString() } : l));
+      const iso = new Date(fuData.date).toISOString();
+      const now = new Date().toISOString();
+      setLeads(prev => prev.map(l =>
+        l.id === targetLead.id ? { ...l, followUpDate: iso, lastContactedAt: now } : l));
       setFuOpen(false);
       toast.success('Follow-up scheduled');
     } catch { toast.error('Failed to schedule'); }
@@ -292,9 +293,9 @@ export default function TelecallerDashboard() {
   const stats = useMemo(() => {
     const today      = leads.filter(l => { try { return isToday(parseISO(l.followUpDate)); } catch { return false; } });
     const overdue    = leads.filter(l => { try { return isPast(parseISO(l.followUpDate)) && !isToday(parseISO(l.followUpDate)); } catch { return false; } });
-    const booked     = leads.filter(l => l.status === 'Booked');
+    const visitsSched = leads.filter(l => l.status === 'Site Visit Scheduled');
     const hotLeads   = leads.filter(l => l.leadLevel === 'Hot');
-    return { total: leads.length, today: today.length, overdue: overdue.length, booked: booked.length, hot: hotLeads.length };
+    return { total: leads.length, today: today.length, overdue: overdue.length, visitsSched: visitsSched.length, hot: hotLeads.length };
   }, [leads]);
 
   // Priority leads = today + overdue, sorted hot first
@@ -400,9 +401,9 @@ export default function TelecallerDashboard() {
         <Card className="p-4 border-slate-200 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Booked</p>
-              <p className="text-3xl font-bold text-emerald-600 mt-1">{loading ? '—' : stats.booked}</p>
-              <p className="text-xs text-slate-500 mt-1">conversions total</p>
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Visit scheduled</p>
+              <p className="text-3xl font-bold text-emerald-600 mt-1">{loading ? '—' : stats.visitsSched}</p>
+              <p className="text-xs text-slate-500 mt-1">site visits on calendar</p>
             </div>
             <div className="w-9 h-9 bg-emerald-100 rounded-lg flex items-center justify-center shrink-0">
               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
@@ -565,7 +566,7 @@ export default function TelecallerDashboard() {
                   return (
                     <TableRow
                       key={lead.id}
-                      className="group border-b border-slate-100 hover:bg-slate-50/60 transition-colors"
+                      className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors"
                     >
                       <TableCell className="px-4 py-3">
                         <div className="font-semibold text-slate-900 text-sm">{lead.clientName}</div>
@@ -627,14 +628,19 @@ export default function TelecallerDashboard() {
                       </TableCell>
 
                       <TableCell className="px-4 py-3">
-                        <div className="space-y-1">
+                        <button
+                          type="button"
+                          className="space-y-1 text-left rounded-md px-1.5 py-1 -mx-1.5 hover:bg-blue-50 transition-colors cursor-pointer"
+                          onClick={() => openFuDialog(lead)}
+                          title="Click to update follow-up"
+                        >
                           <span className={`inline-block text-[0.65rem] font-semibold px-1.5 py-0.5 rounded border ${followUp.colors}`}>
                             {followUp.label}
                           </span>
                           <div className="text-xs text-slate-700">
                             {(() => { try { return format(parseISO(lead.followUpDate), 'MMM d, yyyy'); } catch { return '—'; } })()}
                           </div>
-                        </div>
+                        </button>
                       </TableCell>
 
                       <TableCell className="px-4 py-3">
@@ -654,7 +660,10 @@ export default function TelecallerDashboard() {
 
                       <TableCell className="px-4 py-3 text-right">
                         <DropdownMenu>
-                          <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition-opacity border-0 bg-transparent hover:bg-muted text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                          <DropdownMenuTrigger
+                            aria-label="Row actions"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent hover:bg-muted text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[160px]">

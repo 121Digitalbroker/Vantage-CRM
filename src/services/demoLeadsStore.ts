@@ -5,6 +5,25 @@ const STORAGE_KEY = 'crm_demo_leads';
 const NOTES_KEY   = 'crm_demo_notes';
 const FOLLOWUP_KEY = 'crm_demo_followups';
 const ASSIGNMENT_HISTORY_KEY = 'crm_assignment_history';
+const STATUS_HISTORY_KEY = 'crm_status_history';
+
+const LEGACY_STATUS_MAP: Record<string, Lead['status']> = {
+  Contacted: 'Interested',
+  'Visit Completed': 'Site Visit Scheduled',
+  Negotiation: 'Interested',
+  Booked: 'Site Visit Scheduled',
+};
+const VALID_STATUSES: Lead['status'][] = [
+  'New',
+  'Interested',
+  'Site Visit Scheduled',
+  'Busy',
+  'Not Reachable',
+  'Fake Query',
+  'Not Interested',
+  'Wrong Number',
+  'Low Budget',
+];
 
 export interface DemoNote {
   id: string;
@@ -35,8 +54,29 @@ export interface AssignmentHistory {
   reason?: string;
 }
 
+export interface StatusHistory {
+  id: string;
+  leadId: string;
+  fromStatus: Lead['status'];
+  toStatus: Lead['status'];
+  updatedBy: string;
+  createdAt: string;
+}
+
 function cloneLeads(leads: Lead[]): Lead[] {
   return leads.map(l => ({ ...l }));
+}
+
+function normalizeLeadStatus(status: string): Lead['status'] {
+  if (VALID_STATUSES.includes(status as Lead['status'])) return status as Lead['status'];
+  return LEGACY_STATUS_MAP[status] ?? 'New';
+}
+
+function normalizeLeadSchema(lead: Lead): Lead {
+  return {
+    ...lead,
+    status: normalizeLeadStatus(String(lead.status ?? '')),
+  };
 }
 
 function load(): Lead[] {
@@ -44,10 +84,15 @@ function load(): Lead[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Lead[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed.map(normalizeLeadSchema);
+        const hadLegacyStatus = parsed.some((lead, index) => lead.status !== normalized[index].status);
+        if (hadLegacyStatus) save(normalized);
+        return normalized;
+      }
     }
   } catch { /* ignore */ }
-  const seed = cloneLeads(DEMO_LEADS_SEED);
+  const seed = cloneLeads(DEMO_LEADS_SEED).map(normalizeLeadSchema);
   save(seed);
   return seed;
 }
@@ -75,6 +120,13 @@ function loadAssignmentHistory(): AssignmentHistory[] {
 }
 function saveAssignmentHistory(h: AssignmentHistory[]) {
   try { localStorage.setItem(ASSIGNMENT_HISTORY_KEY, JSON.stringify(h)); } catch { /* ignore */ }
+}
+
+function loadStatusHistory(): StatusHistory[] {
+  try { const raw = localStorage.getItem(STATUS_HISTORY_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
+}
+function saveStatusHistory(h: StatusHistory[]) {
+  try { localStorage.setItem(STATUS_HISTORY_KEY, JSON.stringify(h)); } catch { /* ignore */ }
 }
 
 export function resetDemoLeadsToSeed() {
@@ -209,5 +261,31 @@ export async function demoLogAssignment(
   };
   history.push(record);
   saveAssignmentHistory(history);
+  return record;
+}
+
+export async function demoGetStatusHistory(leadId: string): Promise<StatusHistory[]> {
+  return loadStatusHistory()
+    .filter(h => h.leadId === leadId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function demoLogStatusChange(
+  leadId: string,
+  fromStatus: Lead['status'],
+  toStatus: Lead['status'],
+  updatedBy: string
+): Promise<StatusHistory> {
+  const history = loadStatusHistory();
+  const record: StatusHistory = {
+    id: `status-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    leadId,
+    fromStatus,
+    toStatus,
+    updatedBy,
+    createdAt: new Date().toISOString(),
+  };
+  history.push(record);
+  saveStatusHistory(history);
   return record;
 }

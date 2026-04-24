@@ -25,15 +25,29 @@ import {
   demoCompleteFollowUp,
   demoGetAssignmentHistory,
   demoLogAssignment,
+  demoGetStatusHistory,
+  demoLogStatusChange,
 } from '@/src/services/demoLeadsStore';
-import type { DemoNote, DemoFollowUp, AssignmentHistory } from '@/src/services/demoLeadsStore';
+import type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory } from '@/src/services/demoLeadsStore';
 import { notificationService } from '@/src/services/notificationService';
 
 const VALID_STATUSES: LeadStatus[] = [
-  'New', 'Contacted', 'Interested', 'Site Visit Scheduled',
-  'Visit Completed', 'Negotiation', 'Booked', 'Not Interested',
-  'Wrong Number', 'Low Budget',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'Not Interested', 'Wrong Number', 'Low Budget',
 ];
+
+/** Map old CRM status strings from DB/imports to current statuses */
+function normalizeLeadStatus(raw: string): LeadStatus {
+  const s = String(raw ?? '').trim();
+  if ((VALID_STATUSES as readonly string[]).includes(s)) return s as LeadStatus;
+  const legacy: Record<string, LeadStatus> = {
+    Contacted: 'Interested',
+    'Visit Completed': 'Site Visit Scheduled',
+    Negotiation: 'Interested',
+    Booked: 'Site Visit Scheduled',
+  };
+  return legacy[s] ?? 'New';
+}
 
 const VALID_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 
@@ -45,7 +59,7 @@ export function useDemoLeads(): boolean {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapToLead(row: Record<string, any>): Lead {
-  const rawStatus = String(row.status ?? '');
+  const rawStatus = normalizeLeadStatus(String(row.status ?? ''));
   const rawLevel  = String(row.lead_level ?? '');
 
   return {
@@ -66,7 +80,7 @@ function mapToLead(row: Record<string, any>): Lead {
     isOrganic:       row.is_organic     ?? undefined,
     assignedUserId:  String(row.assigned_to ?? ''),
     leadLevel:       VALID_LEVELS.includes(rawLevel  as LeadLevel)  ? (rawLevel  as LeadLevel)  : 'Cold',
-    status:          VALID_STATUSES.includes(rawStatus as LeadStatus) ? (rawStatus as LeadStatus) : 'New',
+    status:          rawStatus,
     followUpDate:    row.follow_up_date   ?? new Date().toISOString(),
     lastContactedAt: row.last_contacted_at ?? undefined,
     createdAt:       row.created_at        ?? new Date().toISOString(),
@@ -138,6 +152,10 @@ export async function updateLead(id: string, updates: Partial<Lead>): Promise<Le
   // If status is being updated, mark the time
   if (updates.status !== undefined) {
     updates.lastStatusUpdate = new Date().toISOString();
+    // Any pipeline status change counts as engagement for "Last contacted"
+    if (updates.lastContactedAt === undefined) {
+      updates.lastContactedAt = new Date().toISOString();
+    }
   }
 
   if (useDemoLeads()) return demoUpdateLead(id, updates);
@@ -152,47 +170,77 @@ export async function updateLead(id: string, updates: Partial<Lead>): Promise<Le
   return mapToLead(data);
 }
 
-/** Assign a lead to a telecaller. */
+/** Update a lead and log status change (who + when) if status changed. */
+export async function updateLeadWithAudit(
+  id: string,
+  updates: Partial<Lead>,
+  updatedBy: string = 'system'
+): Promise<Lead> {
+  const prev = updates.status !== undefined ? await fetchLead(id) : null;
+  const updated = await updateLead(id, updates);
+
+  if (updates.status !== undefined && prev && prev.status !== updated.status) {
+    await logStatusChange(id, prev.status, updated.status, updatedBy);
+  }
+
+  return updated;
+}
+
+/** Assign a lead to a telecaller, or clear assignment when `userId` is empty. */
 export async function assignLead(leadId: string, userId: string, assignedBy: string = 'system'): Promise<void> {
-  // Get current lead to track previous assignment
   const currentLead = await fetchLead(leadId);
   const previousUserId = currentLead?.assignedUserId || '';
+  const isUnassign = !userId?.trim();
 
-  // Get timer duration from localStorage (default 60 minutes = 1 hour)
   const timerMinutes = parseInt(localStorage.getItem('crm_assignment_timer_minutes') || '60', 10);
-
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + timerMinutes * 60 * 1000); // Use configurable minutes
+  const expiresAt = new Date(now.getTime() + timerMinutes * 60 * 1000);
 
-  const assignmentUpdate: Partial<Lead> = {
-    assignedUserId: userId,
-    assignedAt: now.toISOString(),
-    assignmentExpiresAt: expiresAt.toISOString(),
-    lastStatusUpdate: undefined, // Clear previous status update
-  };
+  const assignmentUpdate: Partial<Lead> = isUnassign
+    ? {
+        assignedUserId: '',
+        assignedAt: undefined,
+        assignmentExpiresAt: undefined,
+        lastStatusUpdate: undefined,
+      }
+    : {
+        assignedUserId: userId,
+        assignedAt: now.toISOString(),
+        assignmentExpiresAt: expiresAt.toISOString(),
+        lastStatusUpdate: undefined,
+      };
+
+  const nextUserId = isUnassign ? '' : userId;
 
   if (useDemoLeads()) {
     await demoUpdateLead(leadId, assignmentUpdate);
   } else {
     const { error } = await supabase
       .from('leads')
-      .update({
-        assigned_to: userId,
-        assigned_at: assignmentUpdate.assignedAt,
-        assignment_expires_at: assignmentUpdate.assignmentExpiresAt,
-        last_status_update: null,
-      })
+      .update(
+        isUnassign
+          ? {
+              assigned_to: null,
+              assigned_at: null,
+              assignment_expires_at: null,
+              last_status_update: null,
+            }
+          : {
+              assigned_to: userId,
+              assigned_at: assignmentUpdate.assignedAt,
+              assignment_expires_at: assignmentUpdate.assignmentExpiresAt,
+              last_status_update: null,
+            }
+      )
       .eq('id', leadId);
     if (error) throw new Error(error.message);
   }
 
-  // Log the assignment history
-  if (previousUserId !== userId) {
-    await logAssignment(leadId, previousUserId, userId, assignedBy);
+  if (previousUserId !== nextUserId) {
+    await logAssignment(leadId, previousUserId, nextUserId, assignedBy);
   }
 
-  // Send notification to telecaller
-  if (currentLead) {
+  if (currentLead && !isUnassign) {
     notificationService.notifyLeadAssignment(leadId, currentLead.name || 'Unknown Lead', userId, assignedBy);
   }
 }
@@ -279,14 +327,22 @@ export async function deleteLead(id: string): Promise<void> {
 }
 
 // ── Notes & Follow-ups (demo-only; extend for Supabase later) ───────────────
-export type { DemoNote, DemoFollowUp, AssignmentHistory };
+export type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory };
 
 export async function getNotes(leadId: string): Promise<DemoNote[]> {
   return demoGetNotes(leadId);
 }
 
 export async function addNote(leadId: string, content: string, userName: string): Promise<DemoNote> {
-  return demoAddNote(leadId, content, userName);
+  const note = await demoAddNote(leadId, content, userName);
+  const now = new Date().toISOString();
+  // Persist last contacted on the lead (notes were only in local store; DB must still update)
+  if (useDemoLeads()) {
+    await demoUpdateLead(leadId, { lastContactedAt: now });
+  } else {
+    await updateLead(leadId, { lastContactedAt: now });
+  }
+  return note;
 }
 
 export async function getFollowUps(leadId: string): Promise<DemoFollowUp[]> {
@@ -299,11 +355,12 @@ export async function addFollowUp(
   userName: string
 ): Promise<DemoFollowUp> {
   const fu = await demoAddFollowUp(leadId, data, userName);
-  // Update the followUpDate on the lead record (demo or Supabase)
+  const now = new Date().toISOString();
+  // Update follow-up date and last contacted (scheduling counts as engagement)
   if (useDemoLeads()) {
-    await demoUpdateLead(leadId, { followUpDate: data.date });
+    await demoUpdateLead(leadId, { followUpDate: data.date, lastContactedAt: now });
   } else {
-    await updateLead(leadId, { followUpDate: data.date });
+    await updateLead(leadId, { followUpDate: data.date, lastContactedAt: now });
   }
   return fu;
 }
@@ -336,6 +393,19 @@ export async function logAssignment(
   reason?: string
 ): Promise<AssignmentHistory> {
   return demoLogAssignment(leadId, fromUserId, toUserId, assignedBy, reason);
+}
+
+export async function getStatusHistory(leadId: string): Promise<StatusHistory[]> {
+  return demoGetStatusHistory(leadId);
+}
+
+export async function logStatusChange(
+  leadId: string,
+  fromStatus: LeadStatus,
+  toStatus: LeadStatus,
+  updatedBy: string
+): Promise<StatusHistory> {
+  return demoLogStatusChange(leadId, fromStatus, toStatus, updatedBy);
 }
 
 // ── Assignment Timer Functions ───────────────────────────────────────────────

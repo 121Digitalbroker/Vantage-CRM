@@ -26,15 +26,15 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Lead, LeadStatus, LeadLevel, InvestmentBudget } from '@/types';
 import {
-  fetchLeads, createLead, createLeadWithDate, checkDuplicateLead, updateLead, assignLead, deleteLead, exportLeadsCSV, isAssignmentExpired,
+  fetchLeads, createLead, createLeadWithDate, checkDuplicateLead, updateLead, updateLeadWithAudit, assignLead, deleteLead, exportLeadsCSV, isAssignmentExpired,
 } from '@/src/services/leadsService';
 import { addNote, addFollowUp } from '@/src/services/leadsService';
 import { useRole } from '@/src/contexts/RoleContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEAD_STATUSES: LeadStatus[] = [
-  'New', 'Contacted', 'Interested', 'Site Visit Scheduled', 'Visit Completed',
-  'Negotiation', 'Booked', 'Not Interested', 'Wrong Number', 'Low Budget',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'Not Interested', 'Wrong Number', 'Low Budget',
 ];
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
@@ -74,12 +74,11 @@ const getLevelColors = (level: LeadLevel) => {
 const getStatusColors = (status: LeadStatus) => {
   switch (status) {
     case 'New':                  return 'bg-blue-100 text-blue-700';
-    case 'Contacted':            return 'bg-indigo-100 text-indigo-700';
     case 'Interested':           return 'bg-purple-100 text-purple-700';
     case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-700';
-    case 'Visit Completed':      return 'bg-teal-100 text-teal-700';
-    case 'Negotiation':          return 'bg-orange-100 text-orange-700';
-    case 'Booked':               return 'bg-emerald-100 text-emerald-700';
+    case 'Busy':                 return 'bg-amber-100 text-amber-800';
+    case 'Not Reachable':        return 'bg-slate-200 text-slate-700';
+    case 'Fake Query':           return 'bg-rose-100 text-rose-800';
     case 'Not Interested':       return 'bg-red-100 text-red-700';
     case 'Wrong Number':         return 'bg-gray-100 text-gray-600';
     case 'Low Budget':           return 'bg-yellow-100 text-yellow-700';
@@ -184,11 +183,23 @@ export default function Leads() {
     setLeads(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l));
 
   const handleAssign = async (leadId: string, userId: string) => {
-    patchLocal(leadId, { assignedUserId: userId });
+    const isUnassign = !userId?.trim();
+    if (isUnassign) {
+      patchLocal(leadId, {
+        assignedUserId: '',
+        assignedAt: undefined,
+        assignmentExpiresAt: undefined,
+      });
+    } else {
+      patchLocal(leadId, { assignedUserId: userId });
+    }
     try {
-      await assignLead(leadId, userId, currentUser.name);
-      const name = telecallers.find(u => u.id === userId)?.name ?? userId;
-      toast.success(`Lead assigned to ${name}`);
+      await assignLead(leadId, isUnassign ? '' : userId, currentUser.name);
+      if (isUnassign) toast.success('Lead unassigned.');
+      else {
+        const name = telecallers.find(u => u.id === userId)?.name ?? userId;
+        toast.success(`Lead assigned to ${name}`);
+      }
     } catch {
       toast.error('Failed to save assignment');
       loadLeads();
@@ -196,9 +207,9 @@ export default function Leads() {
   };
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
-    patchLocal(leadId, { status });
     try {
-      await updateLead(leadId, { status });
+      const updated = await updateLeadWithAudit(leadId, { status }, currentUser.name);
+      patchLocal(leadId, updated);
       toast.success(`Status updated to "${status}"`);
     } catch {
       toast.error('Failed to update status');
@@ -375,7 +386,10 @@ export default function Leads() {
         { type: fuData.type, date: new Date(fuData.date).toISOString(), notes: fuData.notes.trim() },
         currentUser.name
       );
-      patchLocal(targetLead.id, { followUpDate: new Date(fuData.date).toISOString() });
+      patchLocal(targetLead.id, {
+        followUpDate: new Date(fuData.date).toISOString(),
+        lastContactedAt: new Date().toISOString(),
+      });
       setFuOpen(false);
       toast.success('Follow-up scheduled');
     } catch {
@@ -714,7 +728,14 @@ export default function Leads() {
 
       {/* ── Pipeline view ──────────────────────────────────────────────────── */}
       {viewMode === 'pipeline' && (
-        <PipelineView leads={filtered} onLeadsChange={setLeads} />
+        <PipelineView
+          leads={filtered}
+          onLeadsChange={(nextLeads) => {
+            // Pipeline works on filtered rows; merge updates back into full state.
+            const updatesById = new Map(nextLeads.map(lead => [lead.id, lead]));
+            setLeads(prev => prev.map(lead => updatesById.get(lead.id) ?? lead));
+          }}
+        />
       )}
 
       {/* ── Table card ─────────────────────────────────────────────────────── */}
@@ -861,7 +882,7 @@ export default function Leads() {
                 sorted.map(lead => {
                   const followUp = getFollowUpPriority(lead.followUpDate);
                   return (
-                    <TableRow key={lead.id} className="group border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                    <TableRow key={lead.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
                       <TableCell className="px-4 py-3 w-10">
                         <input
                           type="checkbox"
@@ -921,6 +942,14 @@ export default function Leads() {
                                     {lead.assignedUserId === user.id && <span className="ml-auto text-blue-500">✓</span>}
                                   </DropdownMenuItem>
                                 ))}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-xs cursor-pointer text-slate-600"
+                                  disabled={!lead.assignedUserId?.trim()}
+                                  onClick={() => handleAssign(lead.id, '')}
+                                >
+                                  Unassign
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                             {lead.assignedUserId && !lead.lastStatusUpdate && lead.assignmentExpiresAt && (
@@ -981,7 +1010,12 @@ export default function Leads() {
                       </TableCell>
 
                       <TableCell className="px-4 py-3">
-                        <div className="space-y-1">
+                        <button
+                          type="button"
+                          className="space-y-1 text-left rounded-md px-1.5 py-1 -mx-1.5 hover:bg-blue-50 transition-colors cursor-pointer"
+                          onClick={() => openFuDialog(lead)}
+                          title="Click to update follow-up"
+                        >
                           <span className={`inline-block text-[0.65rem] font-semibold px-1.5 py-0.5 rounded border ${followUp.colors}`}>
                             {followUp.label}
                           </span>
@@ -991,7 +1025,7 @@ export default function Leads() {
                           <div className="text-[0.68rem] text-slate-400">
                             {(() => { try { return format(parseISO(lead.followUpDate), 'h:mm a'); } catch { return ''; } })()}
                           </div>
-                        </div>
+                        </button>
                     </TableCell>
 
                       <TableCell className="px-4 py-3">
@@ -1013,7 +1047,10 @@ export default function Leads() {
 
                       <TableCell className="px-4 py-3 text-right">
                       <DropdownMenu>
-                          <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition-opacity border-0 bg-transparent hover:bg-muted text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                          <DropdownMenuTrigger
+                            aria-label="Row actions"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent hover:bg-muted text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                          >
                             <MoreHorizontal className="h-4 w-4" />
                         </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[175px]">

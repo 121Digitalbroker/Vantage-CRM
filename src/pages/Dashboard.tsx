@@ -28,17 +28,19 @@ import { useRole } from '@/src/contexts/RoleContext';
 
 const PIPELINE_STAGES: LeadStatus[] = [
   'New',
-  'Contacted',
   'Interested',
   'Site Visit Scheduled',
-  'Visit Completed',
-  'Negotiation',
-  'Booked',
+  'Busy',
+  'Not Reachable',
+  'Fake Query',
 ];
 
-const CLOSED_STATUSES: LeadStatus[] = ['Booked', 'Not Interested', 'Wrong Number', 'Low Budget'];
+const CLOSED_STATUSES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Not Reachable'];
 
-const stageColors = ['#60a5fa', '#818cf8', '#a78bfa', '#22d3ee', '#14b8a6', '#fb923c', '#10b981'];
+/** Primary “success” stage for KPIs (replaces legacy Booked) */
+const VISIT_SCHEDULED: LeadStatus = 'Site Visit Scheduled';
+
+const stageColors = ['#60a5fa', '#a78bfa', '#22d3ee', '#fbbf24', '#94a3b8', '#fb7185'];
 const activityColors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
 
 // Add this component at the top of the file or bottom, before export default function
@@ -125,13 +127,13 @@ export default function Dashboard() {
 
     const todaysLeads = leads.filter(l => isSameDate(l.createdAt)).length;
     const pendingFollowUps = leads.filter(l => !CLOSED_STATUSES.includes(l.status)).length;
-    const convertedLeads = leads.filter(l => l.status === 'Booked').length;
+    const convertedLeads = leads.filter(l => l.status === VISIT_SCHEDULED).length;
     const activeLeads = leads.filter(l => !CLOSED_STATUSES.includes(l.status)).length;
 
     return [
       { title: "Today's Leads", value: String(todaysLeads), icon: UserPlus, tone: 'bg-blue-50 text-blue-600' },
       { title: 'Open Pipeline', value: String(activeLeads), icon: KanbanSquare, tone: 'bg-indigo-50 text-indigo-600' },
-      { title: 'Booked Deals', value: String(convertedLeads), icon: UserCheck, tone: 'bg-emerald-50 text-emerald-600' },
+      { title: 'Visits scheduled', value: String(convertedLeads), icon: UserCheck, tone: 'bg-emerald-50 text-emerald-600' },
       { title: 'Active Telecallers', value: String(telecallers.length), icon: Users, tone: 'bg-purple-50 text-purple-600' },
       { title: 'Pending Follow-ups', value: String(pendingFollowUps), icon: Clock, tone: 'bg-amber-50 text-amber-600' },
     ];
@@ -167,11 +169,11 @@ export default function Dashboard() {
       .map(user => {
         const assigned = leads.filter(l => l.assignedUserId === user.id);
         const open = assigned.filter(l => !CLOSED_STATUSES.includes(l.status)).length;
-        const booked = assigned.filter(l => l.status === 'Booked').length;
+        const visits = assigned.filter(l => l.status === VISIT_SCHEDULED).length;
         return {
           name: user.name.length > 14 ? `${user.name.slice(0, 14)}...` : user.name,
           open,
-          booked,
+          booked: visits,
           total: assigned.length,
         };
       })
@@ -188,7 +190,7 @@ export default function Dashboard() {
     const upcoming = { name: 'Upcoming', value: 0 };
     const todayBucket = { name: 'Today', value: 0 };
     const overdue = { name: 'Overdue', value: 0 };
-    const completed = { name: 'Booked', value: leads.filter(l => l.status === 'Booked').length };
+    const completed = { name: 'Visit sched.', value: leads.filter(l => l.status === VISIT_SCHEDULED).length };
 
     leads
       .filter(l => !CLOSED_STATUSES.includes(l.status))
@@ -205,7 +207,7 @@ export default function Dashboard() {
 
   const progressRings = useMemo(() => {
     // 1. Lead Conversion Goal
-    const closed = leads.filter(l => l.status === 'Booked').length;
+    const closed = leads.filter(l => l.status === VISIT_SCHEDULED).length;
     const totalOpenOrClosed = leads.filter(l => l.status !== 'Wrong Number' && l.status !== 'Not Interested').length;
     const conversionRate = totalOpenOrClosed > 0 ? (closed / totalOpenOrClosed) * 100 : 0;
 
@@ -222,7 +224,7 @@ export default function Dashboard() {
 
     const today = new Date();
     const currentMonthBookedLeads = leads.filter(l => {
-      if (l.status !== 'Booked') return false;
+      if (l.status !== VISIT_SCHEDULED) return false;
       const d = new Date(l.createdAt);
       return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
     }).length;
@@ -358,7 +360,7 @@ export default function Dashboard() {
                   const graphMax = step * 2;
                   
                   const heightPct = item.count === 0 ? 0 : Math.max(2, (item.count / graphMax) * 100);
-                  const isWon = item.stage === 'Booked';
+                  const isWon = item.stage === VISIT_SCHEDULED;
                   const barColor = isWon ? 'bg-[#4cb276]' : 'bg-[#ffcd4b]';
                   
                   return (
@@ -397,10 +399,10 @@ export default function Dashboard() {
 
                       {/* X-Axis Label */}
                       <div className="absolute -bottom-10 left-0 right-0 text-center text-[10px] font-bold text-slate-500 px-0.5 leading-tight">
-                        {item.stage === 'Site Visit Scheduled' ? 'Visit\nSched.' : 
-                         item.stage === 'Negotiation' ? 'Negotiation' : 
-                         item.stage === 'Visit Completed' ? 'Visit\nDone' : 
-                         item.stage === 'Booked' ? 'Won' : item.stage}
+                        {item.stage === 'Site Visit Scheduled' ? 'Visit\nSched.' :
+                         item.stage === 'Not Reachable' ? 'No\nreach' :
+                         item.stage === 'Fake Query' ? 'Fake\nquery' :
+                         item.stage === 'Busy' ? 'Busy' : item.stage}
                       </div>
 
                       {/* Conversion Chevron */}
@@ -427,7 +429,7 @@ export default function Dashboard() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-[#4cb276] shadow-inner" />
-                Closed Won
+                Visit scheduled
               </div>
             </div>
           </div>
@@ -439,7 +441,7 @@ export default function Dashboard() {
         <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
           <CardHeader className="border-b border-slate-200 py-4">
             <CardTitle className="text-base font-semibold">Deals Status by Sales Person</CardTitle>
-            <CardDescription>Assigned leads split into open pipeline and booked deals.</CardDescription>
+            <CardDescription>Assigned leads: open pipeline vs. visit scheduled.</CardDescription>
           </CardHeader>
           <CardContent className="p-5">
             {dealsBySalesPerson.length === 0 ? (
@@ -467,7 +469,7 @@ export default function Dashboard() {
         <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
           <CardHeader className="border-b border-slate-200 py-4">
             <CardTitle className="text-base font-semibold">Activities Status</CardTitle>
-            <CardDescription>Follow-up workload grouped into overdue, today, upcoming, and booked.</CardDescription>
+            <CardDescription>Follow-up workload: overdue, today, upcoming, and visits scheduled.</CardDescription>
           </CardHeader>
           <CardContent className="p-5">
             <div className="grid grid-cols-2 gap-3 mb-5">

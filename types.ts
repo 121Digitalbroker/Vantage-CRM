@@ -12,12 +12,11 @@ export interface User {
 
 export type LeadStatus =
   | 'New'
-  | 'Contacted'
   | 'Interested'
   | 'Site Visit Scheduled'
-  | 'Visit Completed'
-  | 'Negotiation'
-  | 'Booked'
+  | 'Busy'
+  | 'Not Reachable'
+  | 'Fake Query'
   | 'Not Interested'
   | 'Wrong Number'
   | 'Low Budget';

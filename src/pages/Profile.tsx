@@ -11,6 +11,7 @@ import { useRole } from '@/src/contexts/RoleContext';
 const avatarColors: Record<string, string> = {
   Admin:      'bg-blue-500',
   Manager:    'bg-purple-500',
+  'Digital Marketer': 'bg-orange-500',
   Telecaller: 'bg-emerald-500',
 };
 

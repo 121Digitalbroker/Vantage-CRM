@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { fetchUsers, createUser, updateUserStatus, resetUserPassword, updateUser, deleteUser } from '@/src/services/usersService';
 import { supabase } from '@/lib/supabaseClient';
 
-export type UserRole = 'Admin' | 'Manager' | 'Telecaller';
+export type UserRole = 'Admin' | 'Manager' | 'Digital Marketer' | 'Telecaller';
 
 export interface AppUser {
   id: string;
@@ -14,6 +14,7 @@ export interface AppUser {
   initials: string;
   status: 'Active' | 'Inactive';
   phone?: string;
+  managerId?: string;
   createdAt: string;
   lastLogin?: string;
 }
@@ -23,7 +24,9 @@ const STORAGE_SESSION_KEY = 'crm_session';
 function loadSession(): AppUser | null {
   try {
     const raw = localStorage.getItem(STORAGE_SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AppUser;
+    return { ...parsed, role: normalizeRole(parsed.role) };
   } catch { return null; }
 }
 
@@ -38,6 +41,13 @@ function makeInitials(name: string): string {
   return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
+function normalizeRole(role: string): UserRole {
+  if (role === 'Manager' || role === 'General Manager') return 'Manager';
+  if (role === 'Digital Marketer') return 'Digital Marketer';
+  if (role === 'Telecaller') return 'Telecaller';
+  return 'Admin';
+}
+
 // ── Context types ────────────────────────────────────────────────────────────
 interface LoginResult { success: boolean; error?: string }
 
@@ -45,14 +55,17 @@ interface RoleContextType {
   currentUser: AppUser | null;
   allUsers: AppUser[];
   telecallers: AppUser[];
+  managedUsers: AppUser[];
+  managedUserIds: string[];
   isAuthenticated: boolean;
   isAdmin: boolean;
   isManager: boolean;
+  isDigitalMarketer: boolean;
   isTelecaller: boolean;
   login: (email: string, password: string) => LoginResult;
   logout: () => void;
-  addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string }) => Promise<{ success: boolean; error?: string }>;
-  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string }) => Promise<boolean>;
+  addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerId?: string }) => Promise<{ success: boolean; error?: string }>;
+  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerId?: string }) => Promise<boolean>;
   toggleUserStatus: (userId: string) => Promise<void>;
   resetPassword: (userId: string, newPassword: string) => Promise<void>;
   removeUser: (userId: string) => Promise<boolean>;
@@ -109,7 +122,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const telecallers = allUsers.filter(u => (u.role === 'Telecaller' || u.role === 'Manager') && u.status === 'Active');
+  const telecallers = allUsers.filter(u => u.role === 'Telecaller' && u.status === 'Active');
+  const managedUsers = allUsers.filter(
+    u => u.role === 'Telecaller' && u.status === 'Active' && u.managerId === currentUser?.id
+  );
+  const managedUserIds = managedUsers.map(u => u.id);
 
   // ── Auth actions ───────────────────────────────────────────────────────────
   const login = (email: string, password: string): LoginResult => {
@@ -130,7 +147,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Admin actions ──────────────────────────────────────────────────────────
-  const addTelecaller = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string }) => {
+  const addTelecaller = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerId?: string }) => {
     if (allUsers.find(u => u.email.toLowerCase() === data.email.toLowerCase()))
       return { success: false, error: 'A user with this email already exists.' };
 
@@ -143,6 +160,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       status:   'Active' as const,
       phone:    data.phone,
       position: data.position?.trim() || undefined,
+      managerId: data.managerId?.trim() || undefined,
     };
 
     const created = await createUser(newUserPayload);
@@ -176,7 +194,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string }): Promise<boolean> => {
+  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerId?: string }): Promise<boolean> => {
     const success = await updateUser(userId, updates);
     if (success) {
       setAllUsers(prev => prev.map(u => {
@@ -187,8 +205,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           name:     newName,
           email:    updates.email    ?? u.email,
           phone:    updates.phone    ?? u.phone,
-          role:     updates.role     ?? u.role,
+          role:     updates.role ? normalizeRole(updates.role) : u.role,
           position: updates.position ?? u.position,
+          managerId: updates.managerId ?? u.managerId,
           initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
         };
       }));
@@ -201,8 +220,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
             name:     newName,
             email:    updates.email ?? prev.email,
             phone:    updates.phone ?? prev.phone,
-            role:     updates.role  ?? prev.role,
+            role:     updates.role ? normalizeRole(updates.role) : prev.role,
             position: updates.position ?? prev.position,
+            managerId: updates.managerId ?? prev.managerId,
             initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
           };
           saveSession(updated);
@@ -238,9 +258,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         currentUser,
         allUsers,
         telecallers,
+        managedUsers,
+        managedUserIds,
         isAuthenticated: currentUser !== null,
-        isAdmin:      currentUser?.role === 'Admin' || currentUser?.role === 'Manager',
+        isAdmin:      currentUser?.role === 'Admin',
         isManager:    currentUser?.role === 'Manager',
+        isDigitalMarketer: currentUser?.role === 'Digital Marketer',
         isTelecaller: currentUser?.role === 'Telecaller',
         login,
         logout,

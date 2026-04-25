@@ -40,6 +40,7 @@ const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
 const PROJECTS = ['Sunset Villas', 'Downtown Heights', 'Oceanside Apartments', 'Green Meadows', 'Skyline Towers', 'Lakeview Residency'];
 const INVESTMENT_BUDGETS: InvestmentBudget[] = ['Below ₹50L', '₹50L - ₹1Cr', 'Above ₹1Cr', 'Not Specified'];
+const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget']);
 
 type SortField = 'createdAt' | 'followUpDate' | 'leadLevel' | 'status' | 'assignedUserId';
 type SortDir   = 'asc' | 'desc';
@@ -106,6 +107,9 @@ const getSourceLabel = (source: string) => {
   }
 };
 
+const normalizeName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
+const normalizePhone = (phone: string) => phone.replace(/\D/g, '').slice(-10);
+
 const parseImportedStatus = (raw: string): LeadStatus => {
   const value = String(raw ?? '').trim();
   if (!value) return 'New';
@@ -135,7 +139,7 @@ const blankLeadForm = () => ({
 export default function Leads() {
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams();
-  const { currentUser, telecallers, allUsers, isAdmin, isTelecaller } = useRole();
+  const { currentUser, telecallers, allUsers, isAdmin, isTelecaller, isManager, managedUserIds } = useRole();
 
   const [leads,        setLeads]       = useState<Lead[]>([]);
   const [loading,      setLoading]     = useState(true);
@@ -144,6 +148,8 @@ export default function Leads() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [levelFilter,  setLevelFilter]  = useState('All');
   const [assigneeFilter, setAssigneeFilter] = useState('All');
+  const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>('Active');
+  const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>('All');
   const [sortField,    setSortField]   = useState<SortField>('createdAt');
   const [sortDir,      setSortDir]     = useState<SortDir>('desc');
 
@@ -171,9 +177,16 @@ export default function Leads() {
     setLoading(true);
     setError(null);
     try {
-      const assignedTo = isTelecaller ? currentUser.id : undefined;
-      const data = await fetchLeads(assignedTo);
-      setLeads(data);
+      if (isTelecaller) {
+        const data = await fetchLeads(currentUser.id);
+        setLeads(data);
+      } else if (isManager) {
+        const data = await fetchLeads();
+        setLeads(data.filter(l => managedUserIds.includes(l.assignedUserId) || l.assignedUserId === currentUser.id));
+      } else {
+        const data = await fetchLeads();
+        setLeads(data);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load leads');
     } finally {
@@ -181,7 +194,7 @@ export default function Leads() {
     }
   };
 
-  useEffect(() => { loadLeads(); }, [currentUser.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadLeads(); }, [currentUser.id, isTelecaller, isManager, managedUserIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSearchTerm(searchParams.get('q') ?? '');
@@ -621,6 +634,15 @@ export default function Leads() {
   };
 
   const filtered = useMemo(() => {
+    const nameCounts = new Map<string, number>();
+    const phoneCounts = new Map<string, number>();
+    leads.forEach(lead => {
+      const n = normalizeName(lead.clientName || '');
+      const p = normalizePhone(lead.phoneNumber || '');
+      if (n) nameCounts.set(n, (nameCounts.get(n) || 0) + 1);
+      if (p) phoneCounts.set(p, (phoneCounts.get(p) || 0) + 1);
+    });
+
     const q = searchTerm.toLowerCase();
     return leads.filter(lead => {
       const matchesSearch = !q
@@ -630,10 +652,29 @@ export default function Leads() {
         || (lead.campaignName ?? '').toLowerCase().includes(q);
       const matchesStatus   = statusFilter   === 'All' || lead.status         === statusFilter;
       const matchesLevel    = levelFilter    === 'All' || lead.leadLevel       === levelFilter;
-      const matchesAssignee = assigneeFilter === 'All' || lead.assignedUserId  === assigneeFilter;
-      return matchesSearch && matchesStatus && matchesLevel && matchesAssignee;
+      const matchesAssignee = assigneeFilter === 'All'
+        || (assigneeFilter === '__unassigned__' ? !lead.assignedUserId : lead.assignedUserId === assigneeFilter);
+      const isDump = DUMP_STATUSES.has(lead.status);
+      const matchesDump =
+        dumpFilter === 'All'
+          ? true
+          : dumpFilter === 'Dump'
+            ? isDump
+            : !isDump;
+
+      const n = normalizeName(lead.clientName || '');
+      const p = normalizePhone(lead.phoneNumber || '');
+      const isNameDuplicate = !!n && (nameCounts.get(n) || 0) > 1;
+      const isPhoneDuplicate = !!p && (phoneCounts.get(p) || 0) > 1;
+      const matchesDuplicate =
+        duplicateFilter === 'All'
+        || (duplicateFilter === 'Name' && isNameDuplicate)
+        || (duplicateFilter === 'Phone' && isPhoneDuplicate)
+        || (duplicateFilter === 'NameOrPhone' && (isNameDuplicate || isPhoneDuplicate));
+
+      return matchesSearch && matchesStatus && matchesLevel && matchesAssignee && matchesDuplicate && matchesDump;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter]);
+  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter, duplicateFilter, dumpFilter]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -649,7 +690,13 @@ export default function Leads() {
     });
   }, [filtered, sortField, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const anyFilter = statusFilter !== 'All' || levelFilter !== 'All' || assigneeFilter !== 'All' || searchTerm;
+  const anyFilter =
+    statusFilter !== 'All' ||
+    levelFilter !== 'All' ||
+    assigneeFilter !== 'All' ||
+    dumpFilter !== 'Active' ||
+    duplicateFilter !== 'All' ||
+    searchTerm;
 
   // ── Shared Lead form fields ──────────────────────────────────────────────
   const LeadFormFields = () => (
@@ -852,7 +899,7 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
-            {isAdmin && (
+            {!isTelecaller && (
               <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
                 <SelectTrigger className="h-8 text-xs w-[150px] border-slate-200 bg-slate-50">
                   <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
@@ -860,16 +907,49 @@ export default function Leads() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">All Assignees</SelectItem>
+                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
                   {telecallers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
 
+            <Select value={duplicateFilter} onValueChange={(v) => setDuplicateFilter(v as 'All' | 'Name' | 'Phone' | 'NameOrPhone')}>
+              <SelectTrigger className="h-8 text-xs w-[170px] border-slate-200 bg-slate-50">
+                <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
+                <SelectValue placeholder="Duplicates" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Records</SelectItem>
+                <SelectItem value="Name">Duplicate Name</SelectItem>
+                <SelectItem value="Phone">Duplicate Number</SelectItem>
+                <SelectItem value="NameOrPhone">Name or Number</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={dumpFilter} onValueChange={(v) => setDumpFilter(v as 'Active' | 'Dump' | 'All')}>
+              <SelectTrigger className="h-8 text-xs w-[140px] border-slate-200 bg-slate-50">
+                <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
+                <SelectValue placeholder="Dump filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Active">Active Leads</SelectItem>
+                <SelectItem value="Dump">Dump Leads</SelectItem>
+                <SelectItem value="All">All Leads</SelectItem>
+              </SelectContent>
+            </Select>
+
             {anyFilter && (
               <Button
                 variant="ghost" size="sm"
                 className="h-8 text-xs text-slate-500 hover:text-slate-900 px-2"
-                onClick={() => { setStatusFilter('All'); setLevelFilter('All'); setAssigneeFilter('All'); setSearchTerm(''); }}
+                onClick={() => {
+                  setStatusFilter('All');
+                  setLevelFilter('All');
+                  setAssigneeFilter('All');
+                  setDumpFilter('Active');
+                  setDuplicateFilter('All');
+                  setSearchTerm('');
+                }}
               >
                 Clear filters
               </Button>

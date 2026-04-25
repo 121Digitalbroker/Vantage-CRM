@@ -5,16 +5,24 @@ function makeInitials(name: string): string {
   return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
+function normalizeRole(role: string): AppUser['role'] {
+  if (role === 'Manager' || role === 'General Manager') return 'Manager';
+  if (role === 'Digital Marketer') return 'Digital Marketer';
+  if (role === 'Telecaller') return 'Telecaller';
+  return 'Admin';
+}
+
 function mapToAppUser(row: any): AppUser {
   return {
     id: row.id,
     name: row.name,
     email: row.email,
     password: row.password,
-    role: row.role,
+    role: normalizeRole(row.role),
     position: row.position ?? undefined,
     status: row.status,
     phone: row.phone,
+    managerId: row.manager_id ?? undefined,
     initials: row.initials,
     createdAt: row.created_at,
     lastLogin: row.last_login,
@@ -52,10 +60,11 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
     name: user.name.trim(),
     email: user.email.trim().toLowerCase(),
     password: user.password,
-    role: user.role,
+    role: normalizeRole(user.role),
     position: user.position ?? null,
     status: user.status,
     phone: user.phone,
+    manager_id: user.managerId ?? null,
     initials: user.initials || makeInitials(user.name),
     created_at: new Date().toISOString(),
   };
@@ -66,10 +75,10 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
     .select()
     .single();
 
-  // Backward compatibility: older DBs may not have the `position` column yet.
-  if (error && /position/i.test(error.message || '')) {
+  // Backward compatibility: older DBs may not have the `position` / `manager_id` columns yet.
+  if (error && /(position|manager_id)/i.test(error.message || '')) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { position, ...fallbackUser } = newUser;
+    const { position, manager_id, ...fallbackUser } = newUser;
     const fallback = await supabase
       .from('users')
       .insert(fallbackUser)
@@ -106,14 +115,15 @@ export async function resetUserPassword(userId: string, newPassword: string): Pr
 
 export async function updateUser(
   userId: string,
-  updates: { name?: string; email?: string; phone?: string; role?: string; position?: string }
+  updates: { name?: string; email?: string; phone?: string; role?: string; position?: string; managerId?: string }
 ): Promise<boolean> {
-  const payload: Record<string, string> = {};
+  const payload: Record<string, any> = {};
   if (updates.name)  payload.name     = updates.name.trim();
   if (updates.email) payload.email    = updates.email.trim().toLowerCase();
   if (updates.phone !== undefined) payload.phone = updates.phone;
-  if (updates.role)  payload.role     = updates.role;
+  if (updates.role)  payload.role     = normalizeRole(updates.role);
   if (updates.position !== undefined) payload.position = updates.position.trim();
+  if (updates.managerId !== undefined) payload.manager_id = updates.managerId || null;
   if (updates.name)  payload.initials = updates.name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   let { error } = await supabase
@@ -121,9 +131,9 @@ export async function updateUser(
     .update(payload)
     .eq('id', userId);
 
-  if (error && /position/i.test(error.message || '')) {
+  if (error && /(position|manager_id)/i.test(error.message || '')) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { position, ...fallbackPayload } = payload;
+    const { position, manager_id, ...fallbackPayload } = payload;
     const fallback = await supabase
       .from('users')
       .update(fallbackPayload)

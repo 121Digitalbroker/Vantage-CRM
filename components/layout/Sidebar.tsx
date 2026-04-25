@@ -21,7 +21,7 @@ interface SidebarProps {
 
 export default function Sidebar({ onClose }: SidebarProps) {
   const navigate = useNavigate();
-  const { currentUser, logout, isManager, isTelecaller } = useRole();
+  const { currentUser, logout, isManager, isTelecaller, isDigitalMarketer } = useRole();
 
   if (!currentUser) return null;
 
@@ -42,14 +42,26 @@ export default function Sidebar({ onClose }: SidebarProps) {
   ];
 
   const managerNav = [
+    { name: 'Manager Dashboard', path: '/manager-dashboard', icon: LayoutDashboard },
     { name: 'Leads', path: '/leads', icon: Users },
   ];
 
-  const navItems = isTelecaller ? telecallerNav : isManager ? managerNav : adminNav;
+  const digitalMarketerNav = [
+    { name: 'Leads', path: '/leads', icon: Users },
+  ];
+
+  const navItems = isTelecaller
+    ? telecallerNav
+    : isManager
+      ? managerNav
+      : isDigitalMarketer
+        ? digitalMarketerNav
+        : adminNav;
 
   const roleColor: Record<string, string> = {
     Admin:      'bg-blue-500',
     Manager:    'bg-purple-500',
+    'Digital Marketer': 'bg-orange-500',
     Telecaller: 'bg-emerald-500',
   };
 

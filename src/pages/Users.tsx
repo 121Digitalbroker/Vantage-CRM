@@ -26,21 +26,25 @@ import { format } from 'date-fns';
 const roleBadgeColors: Record<string, string> = {
   Admin:      'bg-purple-50 text-purple-700 border-purple-200',
   Manager:    'bg-blue-50 text-blue-700 border-blue-200',
+  'Digital Marketer': 'bg-orange-50 text-orange-700 border-orange-200',
   Telecaller: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
 const roleAvatarColors: Record<string, string> = {
   Admin:      'bg-purple-500',
   Manager:    'bg-blue-500',
+  'Digital Marketer': 'bg-orange-500',
   Telecaller: 'bg-emerald-500',
 };
 
 export default function Users() {
   const { allUsers, addTelecaller, editUser, toggleUserStatus, resetPassword, removeUser } = useRole();
+  const displayRole = (role: UserRole) => (role === 'Manager' ? 'General Manager' : role);
+  const generalManagers = allUsers.filter(u => u.role === 'Manager' && u.status === 'Active');
 
   // ── Add user dialog ────────────────────────────────────────────────────────
   const [dialogOpen,   setDialogOpen]   = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', role: 'Telecaller' as UserRole, position: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', role: 'Telecaller' as UserRole, position: '', managerId: '' });
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [formError,    setFormError]    = useState('');
   const [submitting,   setSubmitting]   = useState(false);
@@ -51,8 +55,8 @@ export default function Users() {
   const [showResetPass,    setShowResetPass]   = useState(false);
 
   // ── Edit user dialog ──────────────────────────────────────────────────────
-  const [editTarget,   setEditTarget]   = useState<{ id: string; name: string; email: string; phone: string; role: UserRole; position: string } | null>(null);
-  const [editForm,     setEditForm]     = useState({ name: '', email: '', phone: '', role: 'Telecaller' as UserRole, position: '' });
+  const [editTarget,   setEditTarget]   = useState<{ id: string; name: string; email: string; phone: string; role: UserRole; position: string; managerId: string } | null>(null);
+  const [editForm,     setEditForm]     = useState({ name: '', email: '', phone: '', role: 'Telecaller' as UserRole, position: '', managerId: '' });
   const [editError,    setEditError]    = useState('');
   const [editSaving,   setEditSaving]   = useState(false);
 
@@ -61,7 +65,7 @@ export default function Users() {
   const [deleting,     setDeleting]     = useState(false);
 
   const resetForm = () => {
-    setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller', position: '' });
+    setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller', position: '', managerId: '' });
     setFormError('');
     setShowNewPass(false);
   };
@@ -76,11 +80,14 @@ export default function Users() {
     setSubmitting(true);
     await new Promise(r => setTimeout(r, 300));
 
-    const result = await addTelecaller(form);
+    const result = await addTelecaller({
+      ...form,
+      managerId: form.role === 'Telecaller' ? form.managerId : '',
+    });
     setSubmitting(false);
 
     if (result.success) {
-      toast.success(`${form.role} "${form.name}" created successfully! They can now log in.`);
+      toast.success(`${displayRole(form.role)} "${form.name}" created successfully! They can now log in.`);
       setDialogOpen(false);
       resetForm();
     } else {
@@ -105,8 +112,8 @@ export default function Users() {
   };
 
   const openEditDialog = (user: typeof allUsers[0]) => {
-    setEditTarget({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '' });
-    setEditForm({ name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '' });
+    setEditTarget({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '', managerId: user.managerId ?? '' });
+    setEditForm({ name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '', managerId: user.managerId ?? '' });
     setEditError('');
   };
 
@@ -123,6 +130,7 @@ export default function Users() {
       phone: editForm.phone.trim(),
       role:  editForm.role,
       position: editForm.position.trim(),
+      managerId: editForm.role === 'Telecaller' ? editForm.managerId : '',
     });
     setEditSaving(false);
 
@@ -151,7 +159,7 @@ export default function Users() {
     total:       allUsers.length,
     telecallers: allUsers.filter(u => u.role === 'Telecaller').length,
     active:      allUsers.filter(u => u.status === 'Active').length,
-    admins:      allUsers.filter(u => u.role === 'Admin' || u.role === 'Manager').length,
+    admins:      allUsers.filter(u => u.role === 'Admin' || u.role === 'Manager' || u.role === 'Digital Marketer').length,
   };
 
   return (
@@ -168,7 +176,7 @@ export default function Users() {
           <DialogTrigger asChild>
             <Button className="bg-blue-500 hover:bg-blue-600 text-white h-9">
               <UserPlus className="w-4 h-4 mr-2" />
-              Add Telecaller
+              Add User
             </Button>
           </DialogTrigger>
 
@@ -253,10 +261,28 @@ export default function Users() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Telecaller">Telecaller</SelectItem>
-                    <SelectItem value="Manager">Manager</SelectItem>
+                    <SelectItem value="Digital Marketer">Digital Marketer</SelectItem>
+                    <SelectItem value="Manager">General Manager</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {form.role === 'Telecaller' && (
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-medium text-slate-700">Assign General Manager</Label>
+                  <Select value={form.managerId || 'none'} onValueChange={v => setForm(f => ({ ...f, managerId: v === 'none' ? '' : v }))}>
+                    <SelectTrigger className="h-9 border-slate-200 text-sm">
+                      <SelectValue placeholder="Select general manager" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No manager</SelectItem>
+                      {generalManagers.map(m => (
+                        <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
             <DialogFooter>
@@ -278,7 +304,7 @@ export default function Users() {
           { label: 'Total Users',   value: stats.total,       icon: UsersIcon,      color: 'bg-blue-100 text-blue-500' },
           { label: 'Telecallers',   value: stats.telecallers, icon: Phone,          color: 'bg-emerald-100 text-emerald-500' },
           { label: 'Active',        value: stats.active,      icon: CheckCircle,    color: 'bg-green-100 text-green-500' },
-          { label: 'Admin / Mgr',   value: stats.admins,      icon: Shield,         color: 'bg-purple-100 text-purple-500' },
+          { label: 'Admin / Mgr / DM', value: stats.admins,   icon: Shield,         color: 'bg-purple-100 text-purple-500' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
             <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${s.color}`}>
@@ -328,7 +354,7 @@ export default function Users() {
 
                   <TableCell className="px-5 py-3">
                     <Badge variant="outline" className={`text-xs font-semibold shadow-none ${roleBadgeColors[user.role] ?? ''}`}>
-                      {user.role}
+                      {displayRole(user.role)}
                     </Badge>
                   </TableCell>
 
@@ -461,11 +487,29 @@ export default function Users() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="Manager">Manager</SelectItem>
+                  <SelectItem value="Digital Marketer">Digital Marketer</SelectItem>
+                  <SelectItem value="Manager">General Manager</SelectItem>
                   <SelectItem value="Telecaller">Telecaller</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {editForm.role === 'Telecaller' && (
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-slate-700">Assign General Manager</Label>
+                <Select value={editForm.managerId || 'none'} onValueChange={v => setEditForm(f => ({ ...f, managerId: v === 'none' ? '' : v }))}>
+                  <SelectTrigger className="h-9 border-slate-200 text-sm">
+                    <SelectValue placeholder="Select general manager" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No manager</SelectItem>
+                    {generalManagers.map(m => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label className="text-sm font-medium text-slate-700">Position</Label>

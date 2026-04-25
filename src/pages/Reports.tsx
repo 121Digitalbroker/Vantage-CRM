@@ -13,20 +13,98 @@ import { Lead } from '@/types';
 import { format, parseISO, startOfWeek, startOfMonth, startOfDay, compareAsc } from 'date-fns';
 import { Megaphone, ArrowUpRight, TrendingUp, TrendingDown, Users, UserCheck, PhoneCall } from 'lucide-react';
 
-const MOCK_CAMPAIGNS = [
-  { id: 1, name: 'Google Search Ads - Q1', platform: 'Google Ads',  spend: 450000, leads: 145, costPerLead: 3103, status: 'Active',    trend: 'up' },
-  { id: 2, name: 'FB Retargeting - Villas', platform: 'Facebook',   spend: 210000, leads: 86,  costPerLead: 2441, status: 'Active',    trend: 'up' },
-  { id: 3, name: 'LinkedIn Professionals',  platform: 'LinkedIn',   spend: 320000, leads: 42,  costPerLead: 7619, status: 'Paused',    trend: 'down' },
-  { id: 4, name: 'Spring Newsletter',       platform: 'Email',      spend: 15000,  leads: 28,  costPerLead: 535,  status: 'Completed', trend: 'up' },
-];
+/** Manual campaigns with spend — same shape as Campaign Sources (`crm_campaigns`). */
+interface ManualCampaign {
+  id: string;
+  name: string;
+  platform: string;
+  spend: number;
+}
+
+interface DerivedCampaignRow {
+  id: string;
+  name: string;
+  platform: string;
+  spend: number;
+  leads: number;
+  costPerLead: number;
+  status: string;
+}
+
+function loadManualCampaignsFromStorage(): ManualCampaign[] {
+  try {
+    const raw = localStorage.getItem('crm_campaigns');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (c): c is ManualCampaign =>
+        c &&
+        typeof c === 'object' &&
+        typeof (c as ManualCampaign).name === 'string' &&
+        typeof (c as ManualCampaign).spend === 'number'
+    );
+  } catch {
+    return [];
+  }
+}
+
+function campaignLabel(lead: Lead): string {
+  const c = (lead.campaignName || '').trim();
+  const s = (lead.leadSource || '').trim();
+  if (c) return c;
+  if (s) return s;
+  return 'Not specified';
+}
+
+function matchesManualCampaign(manualName: string, lead: Lead): boolean {
+  const mn = manualName.trim().toLowerCase();
+  if (!mn) return false;
+  const c = (lead.campaignName || '').trim().toLowerCase();
+  const s = (lead.leadSource || '').trim().toLowerCase();
+  if (c === mn || s === mn) return true;
+  if (c && (c.includes(mn) || mn.includes(c))) return true;
+  if (s && (s.includes(mn) || mn.includes(s))) return true;
+  return false;
+}
+
+function inferPlatform(label: string): string {
+  const t = label.toLowerCase();
+  if (t.includes('facebook') || t.includes('meta') || t === 'fb' || t.includes('instagram') || t === 'ig')
+    return 'Meta / Facebook';
+  if (t.includes('google')) return 'Google Ads';
+  if (t.includes('linkedin')) return 'LinkedIn';
+  if (t.includes('email') || t.includes('newsletter')) return 'Email';
+  return 'Other';
+}
 
 export default function Reports() {
   const { telecallers } = useRole();
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [manualCampaigns, setManualCampaigns] = useState<ManualCampaign[]>([]);
   const [timeframe, setTimeframe] = useState<'Day' | 'Week' | 'Month'>('Week');
 
   useEffect(() => {
     fetchLeads().then(setLeads).catch(() => setLeads([]));
+  }, []);
+
+  useEffect(() => {
+    const refreshManual = () => setManualCampaigns(loadManualCampaignsFromStorage());
+    refreshManual();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'crm_campaigns' || e.key === null) refreshManual();
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refreshManual();
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', refreshManual);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', refreshManual);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   // 1. Lead Source Distribution (Pie Chart)
@@ -181,19 +259,89 @@ export default function Reports() {
     };
   }, [leads, telecallers]);
 
-  const campaignStats = useMemo(() => {
-    const totalSpend = MOCK_CAMPAIGNS.reduce((s, c) => s + c.spend, 0);
-    const totalLeads = MOCK_CAMPAIGNS.reduce((s, c) => s + c.leads, 0);
-    const avgCPL = totalLeads > 0 ? totalSpend / totalLeads : 0;
-    return { totalSpend, totalLeads, avgCPL };
-  }, []);
+  /** Each lead counts toward at most one manual campaign (first match wins), then remainder by label. */
+  const derivedCampaignRows = useMemo((): DerivedCampaignRow[] => {
+    const assigned = new Set<string>();
+    const rows: DerivedCampaignRow[] = [];
 
-  // Spend by platform for the bar chart
+    manualCampaigns.forEach((m, idx) => {
+      const matched = leads.filter(l => !assigned.has(l.id) && matchesManualCampaign(m.name, l));
+      matched.forEach(l => assigned.add(l.id));
+      const spend = Number(m.spend) || 0;
+      const leadCount = matched.length;
+      const costPerLead = leadCount > 0 && spend > 0 ? Math.round(spend / leadCount) : 0;
+      const platform = (m.platform || '').trim() || inferPlatform(m.name);
+      let status = 'Active';
+      if (spend > 0 && leadCount === 0) status = 'Paused';
+      else if (spend === 0 && leadCount > 0) status = 'Organic';
+      else if (spend === 0 && leadCount === 0) status = 'No leads';
+
+      rows.push({
+        id: m.id || `manual-${idx}`,
+        name: m.name,
+        platform,
+        spend,
+        leads: leadCount,
+        costPerLead,
+        status,
+      });
+    });
+
+    const remaining = leads.filter(l => !assigned.has(l.id));
+    const byLabel = new Map<string, number>();
+    remaining.forEach(l => {
+      const lab = campaignLabel(l);
+      byLabel.set(lab, (byLabel.get(lab) || 0) + 1);
+    });
+    byLabel.forEach((count, name) => {
+      rows.push({
+        id: `other-${name}`,
+        name,
+        platform: inferPlatform(name),
+        spend: 0,
+        leads: count,
+        costPerLead: 0,
+        status: 'Organic',
+      });
+    });
+
+    return rows;
+  }, [leads, manualCampaigns]);
+
+  const campaignStats = useMemo(() => {
+    const totalSpend = derivedCampaignRows.reduce((s, c) => s + c.spend, 0);
+    const totalLeads = leads.length;
+    const paidLeadCount = derivedCampaignRows.filter(c => c.spend > 0).reduce((s, c) => s + c.leads, 0);
+    const avgCPL = paidLeadCount > 0 && totalSpend > 0 ? totalSpend / paidLeadCount : 0;
+    const campaignCount = manualCampaigns.length || derivedCampaignRows.filter(r => r.leads > 0).length;
+    return { totalSpend, totalLeads, avgCPL, campaignCount };
+  }, [derivedCampaignRows, leads.length, manualCampaigns.length]);
+
   const spendByPlatform = useMemo(() => {
     const groups: Record<string, number> = {};
-    MOCK_CAMPAIGNS.forEach(c => { groups[c.platform] = (groups[c.platform] || 0) + c.spend; });
-    return Object.entries(groups).map(([name, spend]) => ({ name, spend }));
-  }, []);
+    derivedCampaignRows.forEach(c => {
+      const key = c.platform || 'Other';
+      groups[key] = (groups[key] || 0) + c.spend;
+    });
+    return Object.entries(groups)
+      .map(([name, spend]) => ({ name, spend }))
+      .filter(d => d.spend > 0);
+  }, [derivedCampaignRows]);
+
+  const leadsCplByPlatform = useMemo(() => {
+    const groups: Record<string, { spend: number; leads: number }> = {};
+    derivedCampaignRows.forEach(c => {
+      const key = c.platform || 'Other';
+      if (!groups[key]) groups[key] = { spend: 0, leads: 0 };
+      groups[key].spend += c.spend;
+      groups[key].leads += c.leads;
+    });
+    return Object.entries(groups).map(([name, { spend, leads: n }]) => ({
+      name,
+      leads: n,
+      cpl: n > 0 && spend > 0 ? Math.round(spend / n) : 0,
+    }));
+  }, [derivedCampaignRows]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -528,7 +676,9 @@ export default function Reports() {
                 <div>
                   <p className="text-sm font-medium text-blue-100">Total Ad Spend</p>
                   <p className="text-3xl font-bold mt-1">₹{campaignStats.totalSpend.toLocaleString('en-IN')}</p>
-                  <p className="text-xs text-blue-200 mt-1">across {MOCK_CAMPAIGNS.length} campaigns</p>
+                  <p className="text-xs text-blue-200 mt-1">
+                    across {campaignStats.campaignCount} tracked {campaignStats.campaignCount === 1 ? 'campaign' : 'campaigns'}
+                  </p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                   <span className="text-lg font-bold text-white">₹</span>
@@ -543,7 +693,7 @@ export default function Reports() {
                 <div>
                   <p className="text-sm font-medium text-emerald-100">Total Leads Generated</p>
                   <p className="text-3xl font-bold mt-1">{campaignStats.totalLeads.toLocaleString()}</p>
-                  <p className="text-xs text-emerald-200 mt-1">from paid campaigns</p>
+                  <p className="text-xs text-emerald-200 mt-1">all leads in CRM</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                   <ArrowUpRight className="w-5 h-5 text-white" />
@@ -558,7 +708,7 @@ export default function Reports() {
                 <div>
                   <p className="text-sm font-medium text-purple-100">Avg. Cost Per Lead</p>
                   <p className="text-3xl font-bold mt-1">₹{campaignStats.avgCPL.toFixed(0)}</p>
-                  <p className="text-xs text-purple-200 mt-1">blended across all sources</p>
+                  <p className="text-xs text-purple-200 mt-1">where spend and leads are both set</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                   <TrendingUp className="w-5 h-5 text-white" />
@@ -576,21 +726,27 @@ export default function Reports() {
               <CardDescription>Total ad budget allocated per channel</CardDescription>
             </CardHeader>
             <CardContent className="h-[240px] p-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={spendByPlatform}>
-                  <defs>
-                    <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.85}/>
-                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.4}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} tickFormatter={v => `₹${v.toLocaleString('en-IN')}`} />
-                  <Tooltip formatter={(v: number) => [`₹${v.toLocaleString('en-IN')}`, 'Spend']} cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="spend" name="Ad Spend" fill="url(#spendGrad)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {spendByPlatform.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                  No ad spend recorded. Add campaigns and budgets under Campaign Sources to see spend by platform.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={spendByPlatform}>
+                    <defs>
+                      <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.85}/>
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.4}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                    <YAxis axisLine={false} tickLine={false} tickFormatter={v => `₹${v.toLocaleString('en-IN')}`} />
+                    <Tooltip formatter={(v: number) => [`₹${v.toLocaleString('en-IN')}`, 'Spend']} cursor={{ fill: '#f8fafc' }} />
+                    <Bar dataKey="spend" name="Ad Spend" fill="url(#spendGrad)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
@@ -600,18 +756,24 @@ export default function Reports() {
               <CardDescription>Comparing volume to cost efficiency</CardDescription>
             </CardHeader>
             <CardContent className="h-[240px] p-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={MOCK_CAMPAIGNS.map(c => ({ name: c.platform, leads: c.leads, cpl: c.costPerLead }))}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} yAxisId="left" />
-                  <YAxis axisLine={false} tickLine={false} yAxisId="right" orientation="right" tickFormatter={v => `₹${v.toLocaleString('en-IN')}`} />
-                  <Tooltip formatter={(value: number, name: string) => name === 'cpl' ? [`₹${value.toLocaleString('en-IN')}`, 'CPL'] : [value, 'Leads']} />
-                  <Legend />
-                  <Bar yAxisId="left" dataKey="leads" name="Leads" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar yAxisId="right" dataKey="cpl" name="CPL (₹)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {leadsCplByPlatform.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
+                  No lead data yet. Import or add leads to compare volume and CPL by platform.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={leadsCplByPlatform}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                    <YAxis axisLine={false} tickLine={false} yAxisId="left" />
+                    <YAxis axisLine={false} tickLine={false} yAxisId="right" orientation="right" tickFormatter={v => `₹${v.toLocaleString('en-IN')}`} />
+                    <Tooltip formatter={(value: number, name: string) => name === 'cpl' ? [`₹${value.toLocaleString('en-IN')}`, 'CPL'] : [value, 'Leads']} />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="leads" name="Leads" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    <Bar yAxisId="right" dataKey="cpl" name="CPL (₹)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -635,31 +797,47 @@ export default function Reports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {MOCK_CAMPAIGNS.map(c => (
-                  <TableRow key={c.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
-                    <TableCell className="px-6 py-4 font-semibold text-slate-900">{c.name}</TableCell>
-                    <TableCell className="px-6 py-4 text-slate-500">{c.platform}</TableCell>
-                    <TableCell className="px-6 py-4 text-slate-900 font-medium">₹{c.spend.toLocaleString('en-IN')}</TableCell>
-                    <TableCell className="px-6 py-4">
-                      <div className="flex items-center gap-1.5 font-medium text-slate-900">
-                        {c.leads}
-                        {c.trend === 'up'
-                          ? <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                          : <TrendingDown className="w-3.5 h-3.5 text-red-500" />}
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-6 py-4 text-slate-900 font-medium">₹{c.costPerLead.toLocaleString('en-IN')}</TableCell>
-                    <TableCell className="px-6 py-4">
-                      <Badge className={`text-xs font-semibold rounded-full px-2.5 py-0.5 border shadow-none ${
-                        c.status === 'Active'    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        c.status === 'Paused'    ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                                                   'bg-slate-100 text-slate-600 border-slate-200'
-                      }`}>
-                        {c.status}
-                      </Badge>
+                {derivedCampaignRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="px-6 py-8 text-center text-slate-500 text-sm">
+                      No campaigns or leads yet. Configure campaigns under Campaign Sources and sync leads.
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  derivedCampaignRows.map(c => (
+                    <TableRow key={c.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
+                      <TableCell className="px-6 py-4 font-semibold text-slate-900">{c.name}</TableCell>
+                      <TableCell className="px-6 py-4 text-slate-500">{c.platform}</TableCell>
+                      <TableCell className="px-6 py-4 text-slate-900 font-medium">
+                        {c.spend > 0 ? `₹${c.spend.toLocaleString('en-IN')}` : '—'}
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
+                        <div className="flex items-center gap-1.5 font-medium text-slate-900">
+                          {c.leads}
+                          {c.leads > 0 ? (
+                            <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <TrendingDown className="w-3.5 h-3.5 text-slate-300" />
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-6 py-4 text-slate-900 font-medium">
+                        {c.spend > 0 && c.leads > 0 ? `₹${c.costPerLead.toLocaleString('en-IN')}` : '—'}
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
+                        <Badge className={`text-xs font-semibold rounded-full px-2.5 py-0.5 border shadow-none ${
+                          c.status === 'Active'    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          c.status === 'Paused'    ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                          c.status === 'Organic'   ? 'bg-sky-50 text-sky-700 border-sky-200' :
+                          c.status === 'No leads'  ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                                                     'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {c.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>

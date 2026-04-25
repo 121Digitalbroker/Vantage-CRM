@@ -17,9 +17,9 @@ export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
 
   const loadNotifications = () => {
-    // Map the capitalized role ('Admin', 'Manager', 'Telecaller') to the notification roles
+    // Map the capitalized role ('Admin', 'Manager', 'Digital Marketer', 'Telecaller') to notification roles
     let userRole: 'admin' | 'telecaller' = 'telecaller';
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager') {
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager' || currentUser?.role === 'Digital Marketer') {
       userRole = 'admin';
     }
 
@@ -46,7 +46,7 @@ export default function NotificationBell() {
 
   const handleMarkAllAsRead = () => {
     let userRole: 'admin' | 'telecaller' = 'telecaller';
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager') {
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager' || currentUser?.role === 'Digital Marketer') {
       userRole = 'admin';
     }
     notificationService.markAllAsRead(userRole, currentUser?.id);

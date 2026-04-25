@@ -51,6 +51,20 @@ function normalizeLeadStatus(raw: string): LeadStatus {
 
 const VALID_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 
+function normalizePhoneForMatch(phone: string): string {
+  const digits = String(phone ?? '').replace(/\D+/g, '');
+  if (!digits) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function normalizeNameForMatch(name: string): string {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Use local demo store (no Supabase writes). Default true so assignment always works locally. */
 export function useDemoLeads(): boolean {
   const v = import.meta.env.VITE_USE_DEMO_LEADS;
@@ -283,17 +297,49 @@ export async function createLeadWithDate(lead: Omit<Lead, 'id'> & { createdAt: s
   return mapToLead(data);
 }
 
-/** Check if a lead already exists by facebookLeadId or phone number. Returns true if duplicate. */
-export async function checkDuplicateLead(facebookLeadId?: string, phoneNumber?: string): Promise<boolean> {
+export async function findLeadByNameAndPhone(clientName: string, phoneNumber: string): Promise<Lead | null> {
+  const cleanPhone = normalizePhoneForMatch(phoneNumber);
+  const normalizedName = normalizeNameForMatch(clientName);
+
+  if (!cleanPhone || !normalizedName) return null;
+
   if (useDemoLeads()) {
-    // For demo mode, check by phone number
+    const leads = await demoFetchLeads();
+    return leads.find(l =>
+      normalizePhoneForMatch(l.phoneNumber) === cleanPhone
+      && normalizeNameForMatch(l.clientName) === normalizedName
+    ) ?? null;
+  }
+
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*');
+  if (error) return null;
+  const rows = (data ?? []).map(mapToLead);
+  return rows.find(l =>
+    normalizePhoneForMatch(l.phoneNumber) === cleanPhone
+    && normalizeNameForMatch(l.clientName) === normalizedName
+  ) ?? null;
+}
+
+/** Check if a lead already exists by facebookLeadId or by exact name+phone pair. */
+export async function checkDuplicateLead(
+  facebookLeadId?: string,
+  phoneNumber?: string,
+  clientName?: string
+): Promise<boolean> {
+  if (useDemoLeads()) {
     const leads = await demoFetchLeads();
     if (facebookLeadId) {
       if (leads.some(l => l.facebookLeadId === facebookLeadId)) return true;
     }
-    if (phoneNumber) {
-      const cleanPhone = phoneNumber.replace(/\s+/g, '');
-      if (leads.some(l => l.phoneNumber.replace(/\s+/g, '') === cleanPhone)) return true;
+    if (phoneNumber && clientName?.trim()) {
+      const cleanPhone = normalizePhoneForMatch(phoneNumber);
+      const normalizedName = normalizeNameForMatch(clientName);
+      if (leads.some(l =>
+        normalizePhoneForMatch(l.phoneNumber) === cleanPhone
+        && normalizeNameForMatch(l.clientName) === normalizedName
+      )) return true;
     }
     return false;
   }
@@ -306,13 +352,18 @@ export async function checkDuplicateLead(facebookLeadId?: string, phoneNumber?: 
     if ((count ?? 0) > 0) return true;
   }
 
-  if (phoneNumber) {
-    const cleanPhone = phoneNumber.replace(/\s+/g, '');
-    const { count } = await supabase
+  if (phoneNumber && clientName?.trim()) {
+    const cleanPhone = normalizePhoneForMatch(phoneNumber);
+    const normalizedName = normalizeNameForMatch(clientName);
+    const { data, error } = await supabase
       .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('phone', cleanPhone);
-    if ((count ?? 0) > 0) return true;
+      .select('name, phone');
+    if (!error && (data ?? []).some(row =>
+      normalizePhoneForMatch(String(row.phone ?? '')) === cleanPhone
+      && normalizeNameForMatch(String(row.name ?? '')) === normalizedName
+    )) {
+      return true;
+    }
   }
 
   return false;

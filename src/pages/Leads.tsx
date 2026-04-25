@@ -26,7 +26,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Lead, LeadStatus, LeadLevel, InvestmentBudget } from '@/types';
 import {
-  fetchLeads, createLead, createLeadWithDate, checkDuplicateLead, updateLead, updateLeadWithAudit, assignLead, deleteLead, exportLeadsCSV, isAssignmentExpired,
+  fetchLeads, createLead, createLeadWithDate, checkDuplicateLead, findLeadByNameAndPhone, updateLead, updateLeadWithAudit, assignLead, deleteLead, exportLeadsCSV, isAssignmentExpired,
 } from '@/src/services/leadsService';
 import { addNote, addFollowUp } from '@/src/services/leadsService';
 import { useRole } from '@/src/contexts/RoleContext';
@@ -104,6 +104,23 @@ const getSourceLabel = (source: string) => {
     case 'Salesperson': return 'bg-purple-50 text-purple-600 border-purple-200';
     default:           return 'bg-gray-100 text-gray-600 border-gray-200';
   }
+};
+
+const parseImportedStatus = (raw: string): LeadStatus => {
+  const value = String(raw ?? '').trim();
+  if (!value) return 'New';
+  const valid = new Set<LeadStatus>([
+    'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+    'Not Interested', 'Wrong Number', 'Low Budget',
+  ]);
+  if (valid.has(value as LeadStatus)) return value as LeadStatus;
+  const legacy: Record<string, LeadStatus> = {
+    Contacted: 'Interested',
+    'Visit Completed': 'Site Visit Scheduled',
+    Negotiation: 'Interested',
+    Booked: 'Site Visit Scheduled',
+  };
+  return legacy[value] ?? 'New';
 };
 
 const blankLeadForm = () => ({
@@ -421,6 +438,8 @@ export default function Leads() {
       const dataRows = lines.slice(1);
       const importedLeads: Lead[] = [];
       let skippedDuplicates = 0;
+      let mergedDuplicates = 0;
+      let notesAdded = 0;
       let skippedInvalid = 0;
 
       for (const row of dataRows) {
@@ -439,10 +458,47 @@ export default function Leads() {
 
         if (!phone || !clientName) { skippedInvalid++; continue; }
 
-        // Deduplication by Facebook lead id OR phone number
+        // Deduplication by Facebook lead id OR exact name+phone pair
         const fbLeadId = data['id']?.trim() || undefined;
-        const isDuplicate = await checkDuplicateLead(fbLeadId, phone);
-        if (isDuplicate) { skippedDuplicates++; continue; }
+        const importedStatus = parseImportedStatus(data['status']);
+        const importedNote = (data['notes'] || '').trim();
+        const followUpRaw = (data['follow up date'] || '').trim();
+        const parsedFollowUp = followUpRaw ? new Date(followUpRaw) : null;
+        const followUpIso =
+          parsedFollowUp && !isNaN(parsedFollowUp.getTime())
+            ? parsedFollowUp.toISOString()
+            : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const isDuplicate = await checkDuplicateLead(fbLeadId, phone, clientName);
+        if (isDuplicate) {
+          const existingLead = await findLeadByNameAndPhone(clientName, phone);
+          if (existingLead) {
+            // Keep existing lead; optionally update status from CSV.
+            if (importedStatus && importedStatus !== existingLead.status) {
+              const updated = await updateLeadWithAudit(existingLead.id, { status: importedStatus }, currentUser.name);
+              patchLocal(existingLead.id, updated);
+            }
+            const extraParts: string[] = [];
+            if (data['project'] || data['form_name']) extraParts.push(`Project: ${(data['project'] || data['form_name']).trim()}`);
+            if (data['campaign_name'] || data['campaign name']) extraParts.push(`Campaign: ${(data['campaign_name'] || data['campaign name']).trim()}`);
+            if (data['adset_name'] || data['adset name']) extraParts.push(`Adset: ${(data['adset_name'] || data['adset name']).trim()}`);
+            if (data['ad_name'] || data['ad name']) extraParts.push(`Ad: ${(data['ad_name'] || data['ad name']).trim()}`);
+            if (data['created_time']) extraParts.push(`Created Time: ${data['created_time'].trim()}`);
+            if (importedStatus) extraParts.push(`Status: ${importedStatus}`);
+            if (importedNote) extraParts.push(`CSV Note: ${importedNote}`);
+            const noteBody = extraParts.length > 0 ? `\n${extraParts.join(' | ')}` : '';
+            await addNote(
+              existingLead.id,
+              `Duplicate CSV row merged (same name + phone). Extra import data attached.${noteBody}`,
+              currentUser.name
+            );
+            patchLocal(existingLead.id, { lastContactedAt: new Date().toISOString() });
+            notesAdded++;
+            mergedDuplicates++;
+          } else {
+            skippedDuplicates++;
+          }
+          continue;
+        }
 
         // Parse created_time from CSV (Facebook format: "2026-04-22 T 15:29:08+05:30" or ISO)
         let createdAt = new Date().toISOString();
@@ -472,14 +528,14 @@ export default function Leads() {
           clientName,
           phoneNumber: phone,
           email:         data['email']?.trim()    || undefined,
-          project:       (data['form_name'] || data['project'] || PROJECTS[0]).trim(),
-          leadSource:    data['platform']  || data['source'] || 'Meta Ads',
+          project:       (data['form_name'] || data['project'] || '').trim(),
+          leadSource:    data['platform'] || data['lead source'] || data['source'] || 'Meta Ads',
           // Full campaign tracking
-          campaignName: data['campaign_name']?.trim()  || undefined,
+          campaignName: (data['campaign_name'] || data['campaign name'])?.trim()  || undefined,
           campaignId:   data['campaign_id']?.trim()    || undefined,
-          adsetName:    data['adset_name']?.trim()     || undefined,
+          adsetName:    (data['adset_name'] || data['adset name'])?.trim()     || undefined,
           adsetId:      data['adset_id']?.trim()       || undefined,
-          adName:       data['ad_name']?.trim()        || undefined,
+          adName:       (data['ad_name'] || data['ad name'])?.trim()        || undefined,
           adId:         data['ad_id']?.trim()          || undefined,
           formName:     data['form_name']?.trim()      || undefined,
           formId:       data['form_id']?.trim()        || undefined,
@@ -488,16 +544,20 @@ export default function Leads() {
           city:               data['city']?.trim()                                  || undefined,
           bestTimeToContact:  data['what_is_the_best_time_to_contact_you?']?.trim() || undefined,
           planningToBuy:      data['when_are_you_planning_to_buy?']?.trim()          || undefined,
-          investmentBudget:  (data['your_investment_budget?'] || 'Not Specified') as InvestmentBudget,
+          investmentBudget:  (data['investment budget'] || data['your_investment_budget?'] || 'Not Specified') as InvestmentBudget,
           facebookLeadId:     fbLeadId,
           // Defaults
           // Telecaller imports are auto-assigned to the importing telecaller.
           assignedUserId: isTelecaller ? currentUser.id : '',
           leadLevel:      'Warm'  as LeadLevel,
-          status:         'New'   as LeadStatus,
-          followUpDate:   new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          status:         importedStatus,
+          followUpDate:   followUpIso,
           createdAt,
         });
+        if (importedNote) {
+          await addNote(newLead.id, `Imported CSV Note: ${importedNote}`, currentUser.name);
+          notesAdded++;
+        }
         importedLeads.push(newLead);
       }
 
@@ -507,6 +567,8 @@ export default function Leads() {
       const parts: string[] = [];
       if (importedLeads.length > 0) parts.push(`✅ ${importedLeads.length} leads imported`);
       if (isTelecaller && importedLeads.length > 0) parts.push('👤 Assigned to you automatically by CRM');
+      if (mergedDuplicates > 0)      parts.push(`🔁 ${mergedDuplicates} duplicate rows merged into existing leads`);
+      if (notesAdded > 0)            parts.push(`📝 ${notesAdded} notes added from CSV`);
       if (skippedDuplicates > 0)    parts.push(`⚠️ ${skippedDuplicates} duplicates skipped`);
       if (skippedInvalid > 0)       parts.push(`❌ ${skippedInvalid} invalid rows skipped`);
       toast.success(parts.join(' · ') || 'No new leads found');

@@ -166,6 +166,10 @@ export default function Leads() {
   const [fuData, setFuData]             = useState({ type: 'Call', date: '', notes: '' });
   const [saving, setSaving]             = useState(false);
   const [viewMode, setViewMode]         = useState<'table' | 'pipeline'>('table');
+  const assigneeUsers = useMemo(
+    () => allUsers.filter(u => u.status === 'Active' && (u.role === 'Telecaller' || u.role === 'Manager')),
+    [allUsers]
+  );
 
   const getUserName = (id: string) => {
     if (!id?.trim()) return 'Unassigned';
@@ -232,7 +236,7 @@ export default function Leads() {
       await assignLead(leadId, isUnassign ? '' : userId, currentUser.name);
       if (isUnassign) toast.success('Lead unassigned.');
       else {
-        const name = telecallers.find(u => u.id === userId)?.name ?? userId;
+        const name = assigneeUsers.find(u => u.id === userId)?.name ?? userId;
         toast.success(`Lead assigned to ${name}`);
       }
     } catch {
@@ -755,7 +759,7 @@ export default function Leads() {
             <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">Unassigned</SelectItem>
-              {telecallers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+              {assigneeUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -908,7 +912,7 @@ export default function Leads() {
                 <SelectContent>
                   <SelectItem value="All">All Assignees</SelectItem>
                   <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  {telecallers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                  {assigneeUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
@@ -1083,7 +1087,7 @@ export default function Leads() {
                               <DropdownMenuContent align="start" className="w-[165px]">
                                 <DropdownMenuLabel className="text-xs text-slate-500">Assign to</DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-                                {telecallers.map(user => (
+                                {assigneeUsers.map(user => (
                                   <DropdownMenuItem
                                     key={user.id}
                                     className={`text-xs cursor-pointer ${lead.assignedUserId === user.id ? 'font-semibold text-blue-600 bg-blue-50' : ''}`}

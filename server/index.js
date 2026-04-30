@@ -27,7 +27,7 @@ app.get("/", (req, res) => {
 
 // Register route inside Express server
 app.get("/api/test-db", testDbHandler);
-app.post("/api/test-email", testEmailHandler);
+app.all("/api/test-email", testEmailHandler);
 app.all("/api/meta-webhook", metaWebhookHandler);
 
 // Start the server

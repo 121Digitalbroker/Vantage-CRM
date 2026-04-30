@@ -255,7 +255,7 @@ export async function assignLead(leadId: string, userId: string, assignedBy: str
   }
 
   if (currentLead && !isUnassign) {
-    notificationService.notifyLeadAssignment(leadId, currentLead.name || 'Unknown Lead', userId, assignedBy);
+    notificationService.notifyLeadAssignment(leadId, currentLead.clientName || 'Unknown Lead', userId, assignedBy);
   }
 }
 
@@ -494,13 +494,13 @@ export async function autoReassignExpiredLead(
   if (availableTelecallers.length === 0) {
     console.warn('No available telecallers for reassignment');
     // Notify admin that no telecallers available
-    notificationService.notifyTimerExpired(lead.id, lead.name || 'Unknown Lead', 'Unknown');
+    notificationService.notifyTimerExpired(lead.id, lead.clientName || 'Unknown Lead', 'Unknown');
     return;
   }
 
   // Send notification to admin about expired assignment
   const previousTelecaller = availableTelecallers.find(t => t.id === lead.assignedUserId)?.name || 'Unknown Telecaller';
-  notificationService.notifyTimerExpired(lead.id, lead.name || 'Unknown Lead', previousTelecaller);
+  notificationService.notifyTimerExpired(lead.id, lead.clientName || 'Unknown Lead', previousTelecaller);
 
   // Find telecaller with least leads or pick next in rotation
   const nextTelecaller = availableTelecallers[0]; // Simple: pick first available

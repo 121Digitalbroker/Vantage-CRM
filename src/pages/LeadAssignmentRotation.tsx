@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Save, UserPlus } from 'lucide-react';
+import { ArrowDown, ArrowUp, Mail, Save, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useRole } from '@/src/contexts/RoleContext';
 import type { Lead } from '@/types';
@@ -12,6 +13,7 @@ import {
   getLeadRotationNextIndex,
   saveLeadRotationConfig,
 } from '@/src/services/leadRotationService';
+import { sendTestEmail } from '@/src/services/testEmailService';
 
 export default function LeadAssignmentRotation() {
   const { allUsers, currentUser } = useRole();
@@ -19,6 +21,9 @@ export default function LeadAssignmentRotation() {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [nowMs, setNowMs] = useState(Date.now());
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [testEmailSecret, setTestEmailSecret] = useState('');
+  const [testEmailSending, setTestEmailSending] = useState(false);
 
   const assignableUsers = useMemo(
     () =>
@@ -153,10 +158,13 @@ export default function LeadAssignmentRotation() {
     return map;
   }, [leads, selectedUsers]);
 
-  const totalAssignedToRotation = useMemo(
-    () => Array.from(leadsByUser.values()).reduce((sum, list) => sum + list.length, 0),
-    [leadsByUser]
-  );
+  const totalAssignedToRotation = useMemo(() => {
+    let sum = 0;
+    for (const list of leadsByUser.values() as Iterable<Lead[]>) {
+      sum += list.length;
+    }
+    return sum;
+  }, [leadsByUser]);
 
   const getLeadTimerLabel = (lead: Lead): string => {
     if (!lead.assignedUserId) return 'Unassigned';
@@ -294,6 +302,59 @@ export default function LeadAssignmentRotation() {
               Save Rotation
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
+        <CardHeader>
+          <CardTitle className="text-base">Email test (Resend)</CardTitle>
+          <CardDescription>
+            Send one manual email through your Express backend to confirm{' '}
+            <code className="text-[11px] bg-slate-100 px-1 rounded">RESEND_API_KEY</code>
+            {' '}and{' '}
+            <code className="text-[11px] bg-slate-100 px-1 rounded">MAIL_FROM</code>.
+            Production: set <code className="text-[11px] bg-slate-100 px-1 rounded">VITE_API_BASE_URL</code> to your API origin.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 max-w-md">
+          <Input
+            type="email"
+            placeholder="Recipient email"
+            autoComplete="email"
+            value={testEmailTo}
+            onChange={(e) => setTestEmailTo(e.target.value)}
+          />
+          <Input
+            type="password"
+            placeholder="Optional — TEST_EMAIL_SECRET if set on server"
+            autoComplete="off"
+            value={testEmailSecret}
+            onChange={(e) => setTestEmailSecret(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="border-slate-200"
+            disabled={testEmailSending || !testEmailTo.trim()}
+            onClick={() => {
+              void (async () => {
+                setTestEmailSending(true);
+                try {
+                  const r = await sendTestEmail({
+                    to: testEmailTo.trim(),
+                    secret: testEmailSecret.trim() || undefined,
+                  });
+                  if (r.ok) toast.success(r.message || 'Test email sent');
+                  else toast.error(r.error || 'Failed');
+                } finally {
+                  setTestEmailSending(false);
+                }
+              })();
+            }}
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            {testEmailSending ? 'Sending…' : 'Send test email'}
+          </Button>
         </CardContent>
       </Card>
 

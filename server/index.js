@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import testDbHandler from "./api/test-db.js";
 import metaWebhookHandler from "./api/meta-webhook.js";
+import testEmailHandler from "./api/test-email.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -20,12 +21,13 @@ app.use(
 // Basic root route (API port is PORT, default 4000)
 app.get("/", (req, res) => {
   res.send(
-    "Express server is running! GET /api/test-db — Meta Lead Ads webhook: GET|POST /api/meta-webhook"
+    "Express running! GET /api/test-db — POST /api/test-email — Meta: GET|POST /api/meta-webhook"
   );
 });
 
 // Register route inside Express server
 app.get("/api/test-db", testDbHandler);
+app.post("/api/test-email", testEmailHandler);
 app.all("/api/meta-webhook", metaWebhookHandler);
 
 // Start the server

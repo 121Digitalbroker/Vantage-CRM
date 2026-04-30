@@ -553,7 +553,7 @@ export default function LeadDetails() {
                         <div className="flex gap-3 items-start">
                           <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center flex-shrink-0">
                             <History className="w-4 h-4 text-purple-600" />
-                          </div>
+                              </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.fromStatus)}`}>
@@ -577,7 +577,7 @@ export default function LeadDetails() {
                   </div>
                 )}
               </TabsContent>
-
+              
               {/* ── Assignment History tab ────────────────────────────────── */}
               <TabsContent value="history" className="p-6 m-0">
                 <h3 className="font-semibold text-slate-900 mb-4">Assignment History</h3>
@@ -593,8 +593,8 @@ export default function LeadDetails() {
                         <div className="flex gap-3 items-start">
                           <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0">
                             <Users className="w-4 h-4 text-blue-600" />
-                              </div>
-                          <div className="flex-1">
+                </div>
+                  <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-sm font-semibold text-slate-700">
                                 {record.fromUserId ? getUserName(record.fromUserId) : 'Unassigned'}
@@ -613,7 +613,7 @@ export default function LeadDetails() {
                             </p>
                           </div>
                         </div>
-                      </div>
+                    </div>
                     ))}
                   </div>
                 )}

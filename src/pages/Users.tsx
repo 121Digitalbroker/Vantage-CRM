@@ -175,7 +175,7 @@ export default function Users() {
         <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
             <Button className="bg-blue-500 hover:bg-blue-600 text-white h-9">
-              <UserPlus className="w-4 h-4 mr-2" />
+          <UserPlus className="w-4 h-4 mr-2" />
               Add User
             </Button>
           </DialogTrigger>
@@ -292,7 +292,7 @@ export default function Users() {
                 className="bg-blue-500 hover:bg-blue-600 text-white text-sm"
               >
                 {submitting ? 'Creating…' : 'Create Account'}
-              </Button>
+        </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -325,9 +325,9 @@ export default function Users() {
         </div>
 
         <div className="overflow-x-auto">
-          <Table className="min-w-full text-[0.8125rem]">
-            <TableHeader>
-              <TableRow className="bg-slate-50 border-b border-slate-200 hover:bg-slate-50">
+        <Table className="min-w-full text-[0.8125rem]">
+          <TableHeader>
+            <TableRow className="bg-slate-50 border-b border-slate-200 hover:bg-slate-50">
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">User</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Role</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Status</TableHead>
@@ -335,9 +335,9 @@ export default function Users() {
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Position</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-5 py-3">Created</TableHead>
                 <TableHead className="text-right font-semibold text-slate-500 px-5 py-3">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
               {allUsers.map(user => (
                 <TableRow key={user.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
                   <TableCell className="px-5 py-3">
@@ -350,19 +350,19 @@ export default function Users() {
                         <div className="text-xs text-slate-500 mt-0.5">{user.email}</div>
                       </div>
                     </div>
-                  </TableCell>
+                </TableCell>
 
                   <TableCell className="px-5 py-3">
                     <Badge variant="outline" className={`text-xs font-semibold shadow-none ${roleBadgeColors[user.role] ?? ''}`}>
                       {displayRole(user.role)}
-                    </Badge>
-                  </TableCell>
+                  </Badge>
+                </TableCell>
 
                   <TableCell className="px-5 py-3">
                     <Badge variant="secondary" className={`text-xs shadow-none ${user.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                      {user.status}
-                    </Badge>
-                  </TableCell>
+                    {user.status}
+                  </Badge>
+                </TableCell>
 
                   <TableCell className="px-5 py-3 text-xs text-slate-500">
                     {user.phone || <span className="text-slate-300">—</span>}
@@ -379,10 +379,10 @@ export default function Users() {
                   <TableCell className="text-right px-5 py-3">
                     {/* Don't allow actions on the Admin seed account */}
                     {user.id !== 'admin-1' ? (
-                      <DropdownMenu>
+                   <DropdownMenu>
                         <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent hover:bg-muted text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </DropdownMenuTrigger>
+                        <MoreHorizontal className="h-4 w-4" />
+                    </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-[180px]">
                           <DropdownMenuItem
                             className="cursor-pointer text-xs"
@@ -405,7 +405,7 @@ export default function Users() {
                             ) : (
                               <><CheckCircle className="w-3.5 h-3.5 mr-2" />Activate</>
                             )}
-                          </DropdownMenuItem>
+                      </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="cursor-pointer text-xs text-red-600 focus:text-red-600 focus:bg-red-50"
@@ -413,18 +413,18 @@ export default function Users() {
                           >
                             <Trash2 className="w-3.5 h-3.5 mr-2" />
                             Delete User
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                     ) : (
                       <span className="text-xs text-slate-300 pr-3">—</span>
                     )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
         <div className="px-5 py-3 border-t border-slate-100 text-xs text-slate-400">
           {allUsers.length} users total · Telecallers can log in with their email and password

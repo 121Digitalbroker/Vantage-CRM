@@ -346,8 +346,8 @@ export default function Reports() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Reports & Analytics</h1>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Reports & Analytics</h1>
           <p className="text-sm text-slate-500 mt-1">Live metrics and performance indicators for your team.</p>
         </div>
         
@@ -720,18 +720,18 @@ export default function Reports() {
 
         {/* ── Spend by Platform chart + Campaign table ─────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
-            <CardHeader className="border-b border-slate-200 py-4">
+        <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
+          <CardHeader className="border-b border-slate-200 py-4">
               <CardTitle className="text-base font-semibold">Spend by Platform</CardTitle>
               <CardDescription>Total ad budget allocated per channel</CardDescription>
-            </CardHeader>
+          </CardHeader>
             <CardContent className="h-[240px] p-6">
               {spendByPlatform.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-slate-400 text-sm text-center px-4">
                   No ad spend recorded. Add campaigns and budgets under Campaign Sources to see spend by platform.
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={spendByPlatform}>
                     <defs>
                       <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
@@ -739,16 +739,16 @@ export default function Reports() {
                         <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.4}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} />
                     <YAxis axisLine={false} tickLine={false} tickFormatter={v => `₹${v.toLocaleString('en-IN')}`} />
                     <Tooltip formatter={(v: number) => [`₹${v.toLocaleString('en-IN')}`, 'Spend']} cursor={{ fill: '#f8fafc' }} />
                     <Bar dataKey="spend" name="Ad Spend" fill="url(#spendGrad)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              </BarChart>
+            </ResponsiveContainer>
               )}
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
 
           <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
             <CardHeader className="border-b border-slate-200 py-4">

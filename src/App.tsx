@@ -18,6 +18,7 @@ import CampaignSources from './pages/CampaignSources';
 import TelecallerDashboard from './pages/TelecallerDashboard';
 import Profile from './pages/Profile';
 import GeneralManagerDashboard from './pages/GeneralManagerDashboard.tsx';
+import LeadAssignmentRotation from './pages/LeadAssignmentRotation';
 import { RoleProvider, useRole } from './contexts/RoleContext';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -74,6 +75,7 @@ function AppRoutes() {
         <Route path="dashboard"    element={isAdmin ? <Dashboard />       : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="users"        element={isAdmin ? <Users />           : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="campaigns"    element={isAdmin ? <CampaignSources /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="lead-assignment-rotation" element={isAdmin ? <LeadAssignmentRotation /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="reports"      element={isAdmin ? <Reports />         : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="manager-dashboard" element={isManager ? <GeneralManagerDashboard /> : <Navigate to={isTelecaller ? '/my-dashboard' : isDigitalMarketer ? '/leads' : '/dashboard'} replace />} />
 

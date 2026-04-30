@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Users,
-  UserCheck,
-  UserPlus,
+import { 
+  Users, 
+  UserCheck, 
+  UserPlus, 
   Clock,
   RefreshCw,
   KanbanSquare,
@@ -249,8 +249,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dashboard Overview</h1>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dashboard Overview</h1>
           <p className="text-sm text-slate-500 mt-1">Pipeline-focused admin insights for leads, salespeople, and follow-up activity.</p>
         </div>
         <Button variant="outline" className="border-slate-200 h-9" onClick={loadLeads}>
@@ -267,7 +267,7 @@ export default function Dashboard() {
                 <div>
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">{stat.title}</h3>
                   <div className="text-3xl font-bold text-slate-900 leading-none">{stat.value}</div>
-                </div>
+                  </div>
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${stat.tone}`}>
                   <stat.icon className="w-5 h-5" />
                 </div>
@@ -431,10 +431,10 @@ export default function Dashboard() {
                 <div className="w-3 h-3 rounded-full bg-[#4cb276] shadow-inner" />
                 Visit scheduled
               </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -461,11 +461,11 @@ export default function Dashboard() {
                     <Bar dataKey="booked" stackId="a" fill="#34d399" radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+                  </div>
             )}
           </CardContent>
         </Card>
-
+        
         <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
           <CardHeader className="border-b border-slate-200 py-4">
             <CardTitle className="text-base font-semibold">Activities Status</CardTitle>
@@ -481,12 +481,12 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.name}</p>
                       <Icon className="w-4 h-4" style={{ color: activityColors[index] }} />
-                    </div>
+                  </div>
                     <div className="text-3xl font-bold text-slate-900 leading-none">{item.value}</div>
                   </div>
                 );
               })}
-            </div>
+                </div>
             <div className="h-[190px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={activityStatus} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>

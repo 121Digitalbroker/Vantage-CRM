@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { fetchUsers, createUser, updateUserStatus, resetUserPassword, updateUser, deleteUser } from '@/src/services/usersService';
 import { supabase } from '@/lib/supabaseClient';
+import { syncOneSignalUser } from '@/src/lib/onesignal';
 
 export type UserRole = 'Admin' | 'Manager' | 'Digital Marketer' | 'Telecaller';
 
@@ -121,6 +122,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       void supabase.removeChannel(channel);
     };
   }, []);
+
+  // OneSignal: same External ID as CRM `users.id` → target this user in OneSignal dashboard
+  useEffect(() => {
+    syncOneSignalUser(currentUser?.id ?? null);
+  }, [currentUser?.id]);
 
   const telecallers = allUsers.filter(u => u.role === 'Telecaller' && u.status === 'Active');
   const managedUsers = allUsers.filter(

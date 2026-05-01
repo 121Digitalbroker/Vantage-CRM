@@ -54,6 +54,11 @@ const LEAD_STATUSES: LeadStatus[] = [
   'Not Interested', 'Wrong Number', 'Low Budget',
 ];
 
+/** No longer need call reminders — hide from priority + overdue workload */
+const CLOSED_PIPELINE_STATUSES: LeadStatus[] = [
+  'Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget',
+];
+
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
 
@@ -116,6 +121,26 @@ const getFollowUpPriority = (dateStr: string) => {
   }
 };
 
+function isClosedPipelineStatus(status: LeadStatus): boolean {
+  return CLOSED_PIPELINE_STATUSES.includes(status);
+}
+
+/** Placeholder / bad imports — keep off telecaller dashboard */
+function isJunkLead(lead: Lead): boolean {
+  const n = String(lead.clientName ?? '').trim();
+  if (/^empty$/i.test(n)) return true;
+  return false;
+}
+
+/** Leads that should drive Today / Overdue / Priority on this page */
+function includeInFollowUpWorkload(lead: Lead): boolean {
+  return !isClosedPipelineStatus(lead.status) && !isJunkLead(lead);
+}
+
+function farFutureFollowUpIso(): string {
+  return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+}
+
 export default function TelecallerDashboard() {
   const navigate = useNavigate();
   const { currentUser } = useRole();
@@ -155,7 +180,11 @@ export default function TelecallerDashboard() {
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
     try {
-      const updated = await updateLeadWithAudit(leadId, { status }, currentUser.name);
+      const updates: Partial<Lead> = { status };
+      if (isClosedPipelineStatus(status)) {
+        updates.followUpDate = farFutureFollowUpIso();
+      }
+      const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);
       setLeads(prev => prev.map(l => l.id === leadId ? updated : l));
       toast.success(`Status updated to "${status}"`);
     } catch {
@@ -275,7 +304,9 @@ export default function TelecallerDashboard() {
         adName: formData.adName.trim() || undefined,
         leadLevel: formData.leadLevel,
         status: formData.status,
-        followUpDate: new Date(formData.followUpDate).toISOString(),
+        followUpDate: isClosedPipelineStatus(formData.status)
+          ? farFutureFollowUpIso()
+          : new Date(formData.followUpDate).toISOString(),
       };
       const updated = await updateLead(targetLead.id, updates);
       setLeads(prev => prev.map(l => l.id === targetLead.id ? updated : l));
@@ -288,18 +319,25 @@ export default function TelecallerDashboard() {
     }
   };
 
-  // ── Derived stats ────────────────────────────────────────────────────────────
-  const stats = useMemo(() => {
-    const today      = leads.filter(l => { try { return isToday(parseISO(l.followUpDate)); } catch { return false; } });
-    const overdue    = leads.filter(l => { try { return isPast(parseISO(l.followUpDate)) && !isToday(parseISO(l.followUpDate)); } catch { return false; } });
-    const visitsSched = leads.filter(l => l.status === 'Site Visit Scheduled');
-    const hotLeads   = leads.filter(l => l.leadLevel === 'Hot');
-    return { total: leads.length, today: today.length, overdue: overdue.length, visitsSched: visitsSched.length, hot: hotLeads.length };
-  }, [leads]);
+  const workloadLeads = useMemo(
+    () => leads.filter(includeInFollowUpWorkload),
+    [leads]
+  );
 
-  // Priority leads = today + overdue, sorted hot first
+  const hiddenLeadCount = leads.length - workloadLeads.length;
+
+  // ── Derived stats (only actionable leads — not closed/junk) ─────────────────
+  const stats = useMemo(() => {
+    const today      = workloadLeads.filter(l => { try { return isToday(parseISO(l.followUpDate)); } catch { return false; } });
+    const overdue    = workloadLeads.filter(l => { try { return isPast(parseISO(l.followUpDate)) && !isToday(parseISO(l.followUpDate)); } catch { return false; } });
+    const visitsSched = workloadLeads.filter(l => l.status === 'Site Visit Scheduled');
+    const hotLeads   = workloadLeads.filter(l => l.leadLevel === 'Hot');
+    return { total: workloadLeads.length, today: today.length, overdue: overdue.length, visitsSched: visitsSched.length, hot: hotLeads.length };
+  }, [workloadLeads]);
+
+  // Priority leads = today + overdue among workload only, sorted hot first
   const priorityLeads = useMemo(() => {
-    return leads
+    return workloadLeads
       .filter(l => {
         try {
           const d = parseISO(l.followUpDate);
@@ -311,7 +349,7 @@ export default function TelecallerDashboard() {
         return order[a.leadLevel] - order[b.leadLevel];
       })
       .slice(0, 6);
-  }, [leads]);
+  }, [workloadLeads]);
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
@@ -423,6 +461,11 @@ export default function TelecallerDashboard() {
                   {stats.today + stats.overdue}
                 </span>
               )}
+              {!loading && hiddenLeadCount > 0 && (
+                <span className="text-[0.65rem] text-slate-400" title="Closed or junk leads hidden here">
+                  {hiddenLeadCount} closed/hidden
+                </span>
+              )}
             </div>
             <Button
               variant="ghost"
@@ -525,7 +568,10 @@ export default function TelecallerDashboard() {
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-slate-400" />
             <h2 className="font-semibold text-slate-900 text-sm">All My Leads</h2>
-            <span className="text-xs text-slate-400">({loading ? '…' : leads.length})</span>
+            <span className="text-xs text-slate-400">
+              ({loading ? '…' : workloadLeads.length}
+              {!loading && hiddenLeadCount > 0 ? ` · ${hiddenLeadCount} closed hidden` : ''})
+            </span>
           </div>
         </div>
 
@@ -553,14 +599,16 @@ export default function TelecallerDashboard() {
                     ))}
                   </TableRow>
                 ))
-              ) : leads.length === 0 ? (
+              ) : workloadLeads.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-32 text-center text-slate-400">
-                    No leads assigned to you yet.
+                    {leads.length === 0
+                      ? 'No leads assigned to you yet.'
+                      : 'No active leads — closed statuses are hidden here. Open My Leads for the full list.'}
                   </TableCell>
                 </TableRow>
               ) : (
-                leads.map(lead => {
+                workloadLeads.map(lead => {
                   const followUp = getFollowUpPriority(lead.followUpDate);
                   return (
                     <TableRow
@@ -706,7 +754,10 @@ export default function TelecallerDashboard() {
         </div>
 
         <div className="px-5 py-3 border-t border-slate-100 flex justify-between text-xs text-slate-400">
-          <span>Showing {leads.length} assigned leads</span>
+          <span>
+            Showing {workloadLeads.length} active leads
+            {hiddenLeadCount > 0 ? ` (${hiddenLeadCount} closed/junk hidden)` : ''}
+          </span>
           <button
             className="text-blue-500 hover:underline"
             onClick={() => navigate('/leads')}

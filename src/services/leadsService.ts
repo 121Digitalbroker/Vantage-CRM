@@ -45,6 +45,7 @@ function normalizeLeadStatus(raw: string): LeadStatus {
     'Visit Completed': 'Site Visit Scheduled',
     Negotiation: 'Interested',
     Booked: 'Site Visit Scheduled',
+    CREATED: 'New',
   };
   return legacy[s] ?? 'New';
 }
@@ -103,6 +104,14 @@ function mapToLead(row: Record<string, any>): Lead {
     bestTimeToContact: row.best_time_to_contact ?? undefined,
     planningToBuy:   row.planning_to_buy   ?? undefined,
     facebookLeadId:  row.facebook_lead_id  ?? undefined,
+    platform:        row.platform          ?? undefined,
+    leadgenId:       row.leadgen_id        ?? undefined,
+    metaCreatedTime: row.meta_created_time ?? undefined,
+    metaLeadStatus:  row.meta_lead_status  ?? undefined,
+    metaFieldData:
+      row.meta_field_data && typeof row.meta_field_data === 'object'
+        ? (row.meta_field_data as Record<string, unknown>)
+        : undefined,
     // Assignment timer fields
     assignedAt:      row.assigned_at        ?? undefined,
     lastStatusUpdate: row.last_status_update ?? undefined,
@@ -136,6 +145,11 @@ function mapToRow(updates: Partial<Lead>): Record<string, unknown> {
   if (updates.bestTimeToContact !== undefined) row.best_time_to_contact = updates.bestTimeToContact;
   if (updates.planningToBuy    !== undefined) row.planning_to_buy      = updates.planningToBuy;
   if (updates.facebookLeadId   !== undefined) row.facebook_lead_id     = updates.facebookLeadId;
+  if (updates.platform         !== undefined) row.platform             = updates.platform;
+  if (updates.leadgenId        !== undefined) row.leadgen_id           = updates.leadgenId;
+  if (updates.metaCreatedTime  !== undefined) row.meta_created_time   = updates.metaCreatedTime;
+  if (updates.metaLeadStatus   !== undefined) row.meta_lead_status     = updates.metaLeadStatus;
+  if (updates.metaFieldData    !== undefined) row.meta_field_data      = updates.metaFieldData;
   // Assignment timer fields
   if (updates.assignedAt       !== undefined) row.assigned_at          = updates.assignedAt;
   if (updates.lastStatusUpdate !== undefined) row.last_status_update   = updates.lastStatusUpdate;

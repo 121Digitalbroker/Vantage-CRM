@@ -52,6 +52,16 @@ export interface Lead {
   bestTimeToContact?: string;
   planningToBuy?: string;
   facebookLeadId?: string;
+  /** Meta export: ig, fb, … */
+  platform?: string;
+  /** Meta leadgen id when present (webhook / export) */
+  leadgenId?: string;
+  /** Graph `created_time` from Meta (export) */
+  metaCreatedTime?: string;
+  /** Meta delivery state (e.g. CREATED) — not CRM pipeline `status` */
+  metaLeadStatus?: string;
+  /** Custom Instant Form fields from Meta (varying keys per form) */
+  metaFieldData?: Record<string, unknown>;
   // Assignment timer fields
   assignedAt?: string;
   lastStatusUpdate?: string;

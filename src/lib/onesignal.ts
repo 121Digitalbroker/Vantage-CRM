@@ -54,3 +54,42 @@ export function syncOneSignalUser(externalUserId: string | null): void {
     }
   });
 }
+
+/** Queue a callback after the Page SDK is ready (same pattern as init). */
+export function withOneSignal(
+  fn: (OneSignal: OneSignalNamespace) => void | Promise<void>
+): void {
+  if (!appId?.trim()) return;
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  window.OneSignalDeferred.push(fn);
+}
+
+/** Ask browser + OneSignal for notification permission (bell / slide prompt). */
+export function requestOneSignalPermission(): void {
+  withOneSignal(async (OneSignal) => {
+    await OneSignal.Notifications?.requestPermission?.();
+  });
+}
+
+export function getBrowserNotificationPermission(): NotificationPermission | 'unsupported' {
+  if (typeof Notification === 'undefined') return 'unsupported';
+  return Notification.permission;
+}
+
+/** Quick test without OneSignal servers — confirms OS/browser can show a notification. */
+export function showLocalTestNotification(): void {
+  if (typeof Notification === 'undefined') {
+    throw new Error('Notifications not supported in this browser');
+  }
+  if (Notification.permission !== 'granted') {
+    throw new Error('Allow notifications first');
+  }
+  new Notification('Vantage CRM', {
+    body: 'Local test — browser notifications work. Use OneSignal dashboard to send a real push.',
+    icon: '/logo.svg',
+  });
+}
+
+export function isOneSignalConfigured(): boolean {
+  return Boolean(appId?.trim());
+}

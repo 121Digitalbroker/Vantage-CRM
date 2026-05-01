@@ -5,7 +5,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { Trash2, Plus } from 'lucide-react';
+import { Bell, Trash2, Plus } from 'lucide-react';
+import { useRole } from '@/src/contexts/RoleContext';
+import {
+  getBrowserNotificationPermission,
+  isOneSignalConfigured,
+  requestOneSignalPermission,
+  showLocalTestNotification,
+} from '@/src/lib/onesignal';
 
 interface Campaign {
   id: string;
@@ -15,11 +22,19 @@ interface Campaign {
 }
 
 export default function Settings() {
+  const { currentUser } = useRole();
+  const [pushPerm, setPushPerm] = useState<NotificationPermission | 'unsupported'>(() =>
+    getBrowserNotificationPermission()
+  );
   const [goal, setGoal] = useState('50000000');
   const [avgValue, setAvgValue] = useState('5000000');
   const [assignmentTimerMinutes, setAssignmentTimerMinutes] = useState('60');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [newCampaign, setNewCampaign] = useState({ name: '', platform: 'Google Ads', spend: '' });
+
+  useEffect(() => {
+    setPushPerm(getBrowserNotificationPermission());
+  }, []);
 
   useEffect(() => {
     setGoal(localStorage.getItem('crm_revenue_goal') || '50000000');
@@ -121,6 +136,76 @@ export default function Settings() {
           <CardFooter className="border-t border-slate-200 px-6 py-4 bg-slate-50/50 rounded-b-xl justify-end">
             <Button className="bg-blue-500 hover:bg-blue-600 text-white">Update Password</Button>
           </CardFooter>
+        </Card>
+
+        <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
+          <CardHeader className="border-b border-slate-200 py-4">
+            <CardTitle className="text-base font-semibold">Web push (OneSignal)</CardTitle>
+            <CardDescription>
+              Test notifications here. Use the OneSignal dashboard to send a full push to your External ID (
+              <code className="text-xs bg-slate-100 px-1 rounded">Messages → New push</code>
+              ).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 p-6">
+            {!isOneSignalConfigured() && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Set <code className="text-xs">VITE_ONESIGNAL_APP_ID</code> at build time, then redeploy.
+              </p>
+            )}
+            <div className="grid gap-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">SDK configured</span>
+                <span className="font-medium text-slate-900">{isOneSignalConfigured() ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Browser permission</span>
+                <span className="font-medium text-slate-900">
+                  {pushPerm === 'unsupported' ? 'Not supported' : pushPerm}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Your External ID (OneSignal)</span>
+                <span className="font-mono text-xs text-slate-900 truncate max-w-[200px]" title={currentUser?.id}>
+                  {currentUser?.id ?? '— (log in)'}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-slate-200"
+                disabled={!isOneSignalConfigured()}
+                onClick={() => {
+                  requestOneSignalPermission();
+                  setTimeout(() => setPushPerm(getBrowserNotificationPermission()), 1500);
+                  toast.message('If prompted, click Allow. Check browser permission in a few seconds.');
+                }}
+              >
+                <Bell className="w-4 h-4 mr-2" />
+                Request push permission
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  try {
+                    showLocalTestNotification();
+                    toast.success('If you saw a system notification, the browser path works.');
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Test failed');
+                  }
+                }}
+              >
+                Test local notification
+              </Button>
+            </div>
+            <p className="text-xs text-slate-500">
+              <strong>Local test</strong> only checks this browser. <strong>Real OneSignal push</strong>: dashboard →
+              Audience (confirm you are subscribed) → Messages → target your External ID above.
+            </p>
+          </CardContent>
         </Card>
 
         <Card className="bg-white border-slate-200 shadow-sm rounded-xl">

@@ -6,6 +6,7 @@ import {
   leadRowFromGraphLead,
   verifyMetaSignature,
 } from "../lib/metaLeadWebhook.js";
+import { noDeprecation } from "node:process";
 
 /**
  * GET — Meta webhook verification (paste Callback URL in Meta → Webhooks).

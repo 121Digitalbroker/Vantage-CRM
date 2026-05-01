@@ -21,6 +21,12 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { Lead, LeadStatus } from '@/types';
 import { updateLeadWithAudit } from '@/src/services/leadsService';
+
+const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget']);
+
+function farFutureFollowUpIso(): string {
+  return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+}
 import { useRole } from '@/src/contexts/RoleContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -160,9 +166,11 @@ function PipelineColumn({ stage, leads, getUserName }: ColumnProps) {
 interface PipelineViewProps {
   leads: Lead[];
   onLeadsChange: (leads: Lead[]) => void;
+  /** Called after a lead is moved to a dump/closed status (for delayed hide on Active list) */
+  onDumpStatusApplied?: (leadId: string) => void;
 }
 
-export default function PipelineView({ leads, onLeadsChange }: PipelineViewProps) {
+export default function PipelineView({ leads, onLeadsChange, onDumpStatusApplied }: PipelineViewProps) {
   const { currentUser, allUsers, telecallers } = useRole();
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -223,7 +231,15 @@ export default function PipelineView({ leads, onLeadsChange }: PipelineViewProps
 
     // Persist to store/Supabase
     try {
-      await updateLeadWithAudit(leadId, { status: targetStage }, currentUser.name);
+      const updates: Partial<Lead> = { status: targetStage };
+      if (DUMP_STATUSES.has(targetStage)) {
+        updates.followUpDate = farFutureFollowUpIso();
+      }
+      const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);
+      onLeadsChange(leads.map(l => (l.id === leadId ? updated : l)));
+      if (DUMP_STATUSES.has(targetStage)) {
+        onDumpStatusApplied?.(leadId);
+      }
       toast.success(`Moved to "${targetStage}"`);
     } catch {
       toast.error('Failed to update stage');

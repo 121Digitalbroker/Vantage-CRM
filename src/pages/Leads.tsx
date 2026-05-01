@@ -41,6 +41,12 @@ const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesper
 const PROJECTS = ['Sunset Villas', 'Downtown Heights', 'Oceanside Apartments', 'Green Meadows', 'Skyline Towers', 'Lakeview Residency'];
 const INVESTMENT_BUDGETS: InvestmentBudget[] = ['Below ₹50L', '₹50L - ₹1Cr', 'Above ₹1Cr', 'Not Specified'];
 const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget']);
+/** After marking dump, row stays in "Active" list this long before disappearing */
+const DUMP_HIDE_GRACE_MS = 10_000;
+
+function farFutureFollowUpIso(): string {
+  return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+}
 
 type SortField = 'createdAt' | 'followUpDate' | 'leadLevel' | 'status' | 'assignedUserId';
 type SortDir   = 'asc' | 'desc';
@@ -149,6 +155,8 @@ export default function Leads() {
   const [levelFilter,  setLevelFilter]  = useState('All');
   const [assigneeFilter, setAssigneeFilter] = useState('All');
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>('Active');
+  /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
+  const [dumpGraceUntil, setDumpGraceUntil] = useState<Record<string, number>>({});
   const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>('All');
   const [sortField,    setSortField]   = useState<SortField>('createdAt');
   const [sortDir,      setSortDir]     = useState<SortDir>('desc');
@@ -221,6 +229,28 @@ export default function Leads() {
   const patchLocal = (id: string, patch: Partial<Lead>) =>
     setLeads(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l));
 
+  const scheduleDumpGrace = (leadId: string) => {
+    const until = Date.now() + DUMP_HIDE_GRACE_MS;
+    setDumpGraceUntil(prev => ({ ...prev, [leadId]: until }));
+    window.setTimeout(() => {
+      setDumpGraceUntil(prev => {
+        if (prev[leadId] !== until) return prev;
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }, DUMP_HIDE_GRACE_MS);
+  };
+
+  const clearDumpGrace = (leadId: string) => {
+    setDumpGraceUntil(prev => {
+      if (!prev[leadId]) return prev;
+      const next = { ...prev };
+      delete next[leadId];
+      return next;
+    });
+  };
+
   const handleAssign = async (leadId: string, userId: string) => {
     const isUnassign = !userId?.trim();
     if (isUnassign) {
@@ -247,8 +277,18 @@ export default function Leads() {
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
     try {
-      const updated = await updateLeadWithAudit(leadId, { status }, currentUser.name);
+      if (!DUMP_STATUSES.has(status)) {
+        clearDumpGrace(leadId);
+      }
+      const updates: Partial<Lead> = { status };
+      if (DUMP_STATUSES.has(status)) {
+        updates.followUpDate = farFutureFollowUpIso();
+      }
+      const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);
       patchLocal(leadId, updated);
+      if (DUMP_STATUSES.has(status)) {
+        scheduleDumpGrace(leadId);
+      }
       toast.success(`Status updated to "${status}"`);
     } catch {
       toast.error('Failed to update status');
@@ -351,6 +391,9 @@ export default function Leads() {
     }
     setSaving(true);
     try {
+      if (!DUMP_STATUSES.has(formData.status)) {
+        clearDumpGrace(targetLead.id);
+      }
       const updates: Partial<Lead> = {
         clientName: formData.clientName.trim(),
         phoneNumber: formData.phoneNumber.trim(),
@@ -363,11 +406,16 @@ export default function Leads() {
         assignedUserId: formData.assignedUserId,
         leadLevel: formData.leadLevel,
         status: formData.status,
-        followUpDate: new Date(formData.followUpDate).toISOString(),
+        followUpDate: DUMP_STATUSES.has(formData.status)
+          ? farFutureFollowUpIso()
+          : new Date(formData.followUpDate).toISOString(),
         investmentBudget: formData.investmentBudget,
       };
       const updated = await updateLead(targetLead.id, updates);
       patchLocal(targetLead.id, updated);
+      if (DUMP_STATUSES.has(formData.status)) {
+        scheduleDumpGrace(targetLead.id);
+      }
       setEditOpen(false);
       toast.success(`Lead "${updated.clientName}" updated`);
     } catch {
@@ -659,12 +707,16 @@ export default function Leads() {
       const matchesAssignee = assigneeFilter === 'All'
         || (assigneeFilter === '__unassigned__' ? !lead.assignedUserId : lead.assignedUserId === assigneeFilter);
       const isDump = DUMP_STATUSES.has(lead.status);
+      const inDumpGrace =
+        isDump &&
+        dumpGraceUntil[lead.id] != null &&
+        Date.now() < dumpGraceUntil[lead.id];
       const matchesDump =
         dumpFilter === 'All'
           ? true
           : dumpFilter === 'Dump'
             ? isDump
-            : !isDump;
+            : !isDump || inDumpGrace;
 
       const n = normalizeName(lead.clientName || '');
       const p = normalizePhone(lead.phoneNumber || '');
@@ -678,7 +730,7 @@ export default function Leads() {
 
       return matchesSearch && matchesStatus && matchesLevel && matchesAssignee && matchesDuplicate && matchesDump;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter, duplicateFilter, dumpFilter]);
+  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -857,6 +909,7 @@ export default function Leads() {
             const updatesById = new Map(nextLeads.map(lead => [lead.id, lead]));
             setLeads(prev => prev.map(lead => updatesById.get(lead.id) ?? lead));
           }}
+          onDumpStatusApplied={scheduleDumpGrace}
         />
       )}
 

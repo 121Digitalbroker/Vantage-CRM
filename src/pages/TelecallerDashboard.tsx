@@ -59,6 +59,9 @@ const CLOSED_PIPELINE_STATUSES: LeadStatus[] = [
   'Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget',
 ];
 
+/** After marking closed/dump, row stays visible this long before disappearing from dashboard */
+const DUMP_HIDE_GRACE_MS = 10_000;
+
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
 
@@ -132,9 +135,12 @@ function isJunkLead(lead: Lead): boolean {
   return false;
 }
 
-/** Leads that should drive Today / Overdue / Priority on this page */
-function includeInFollowUpWorkload(lead: Lead): boolean {
-  return !isClosedPipelineStatus(lead.status) && !isJunkLead(lead);
+/** Leads that should drive Today / Overdue / Priority on this page (grace keeps dump rows briefly after status change) */
+function includeInFollowUpWorkload(lead: Lead, graceUntilById: Record<string, number>): boolean {
+  if (isJunkLead(lead)) return false;
+  if (!isClosedPipelineStatus(lead.status)) return true;
+  const until = graceUntilById[lead.id];
+  return until != null && Date.now() < until;
 }
 
 function farFutureFollowUpIso(): string {
@@ -158,6 +164,30 @@ export default function TelecallerDashboard() {
   const [fuData, setFuData]           = useState({ type: 'Call', date: '', notes: '' });
   const [formData, setFormData]       = useState(blankLeadForm());
   const [saving, setSaving]           = useState(false);
+  /** Closed leads stay on dashboard until this epoch ms, then drop off */
+  const [dumpGraceUntil, setDumpGraceUntil] = useState<Record<string, number>>({});
+
+  const scheduleDumpGrace = (leadId: string) => {
+    const until = Date.now() + DUMP_HIDE_GRACE_MS;
+    setDumpGraceUntil(prev => ({ ...prev, [leadId]: until }));
+    window.setTimeout(() => {
+      setDumpGraceUntil(prev => {
+        if (prev[leadId] !== until) return prev;
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
+    }, DUMP_HIDE_GRACE_MS);
+  };
+
+  const clearDumpGrace = (leadId: string) => {
+    setDumpGraceUntil(prev => {
+      if (!prev[leadId]) return prev;
+      const next = { ...prev };
+      delete next[leadId];
+      return next;
+    });
+  };
 
   const loadLeads = async () => {
     setLoading(true);
@@ -180,12 +210,18 @@ export default function TelecallerDashboard() {
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
     try {
+      if (!isClosedPipelineStatus(status)) {
+        clearDumpGrace(leadId);
+      }
       const updates: Partial<Lead> = { status };
       if (isClosedPipelineStatus(status)) {
         updates.followUpDate = farFutureFollowUpIso();
       }
       const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);
       setLeads(prev => prev.map(l => l.id === leadId ? updated : l));
+      if (isClosedPipelineStatus(status)) {
+        scheduleDumpGrace(leadId);
+      }
       toast.success(`Status updated to "${status}"`);
     } catch {
       toast.error('Failed to update status');
@@ -291,6 +327,9 @@ export default function TelecallerDashboard() {
       toast.error('Client Name and Phone Number are required');
       return;
     }
+    if (!isClosedPipelineStatus(formData.status)) {
+      clearDumpGrace(targetLead.id);
+    }
     setSaving(true);
     try {
       const updates: Partial<Lead> = {
@@ -310,6 +349,9 @@ export default function TelecallerDashboard() {
       };
       const updated = await updateLead(targetLead.id, updates);
       setLeads(prev => prev.map(l => l.id === targetLead.id ? updated : l));
+      if (isClosedPipelineStatus(formData.status)) {
+        scheduleDumpGrace(targetLead.id);
+      }
       setEditOpen(false);
       toast.success(`Lead "${updated.clientName}" updated`);
     } catch {
@@ -320,8 +362,8 @@ export default function TelecallerDashboard() {
   };
 
   const workloadLeads = useMemo(
-    () => leads.filter(includeInFollowUpWorkload),
-    [leads]
+    () => leads.filter(l => includeInFollowUpWorkload(l, dumpGraceUntil)),
+    [leads, dumpGraceUntil]
   );
 
   const hiddenLeadCount = leads.length - workloadLeads.length;

@@ -30,7 +30,8 @@ export default async function metaWebhookHandler(req, res) {
   if (!verifyMetaSignature(rawBody, sig)) {
     return res.sendStatus(403);
   }
-
+  
+  
   let body;
   try {
     body = JSON.parse(rawBody.toString("utf8"));

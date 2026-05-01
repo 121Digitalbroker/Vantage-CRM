@@ -22,7 +22,7 @@ interface Campaign {
 }
 
 export default function Settings() {
-  const { currentUser } = useRole();
+  const { currentUser, isAdmin } = useRole();
   const [pushPerm, setPushPerm] = useState<NotificationPermission | 'unsupported'>(() =>
     getBrowserNotificationPermission()
   );
@@ -205,6 +205,28 @@ export default function Settings() {
               <strong>Local test</strong> only checks this browser. <strong>Real OneSignal push</strong>: dashboard →
               Audience (confirm you are subscribed) → Messages → target your External ID above.
             </p>
+            {isAdmin && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 space-y-2 text-xs text-slate-700">
+                <p className="font-semibold text-slate-900">Test push to a telecaller (or any user)</p>
+                <ol className="list-decimal list-inside space-y-1.5">
+                  <li>
+                    Ask them to open the CRM, <strong>log in</strong>, and allow notifications (they can use{' '}
+                    <strong>Request push permission</strong> here or the browser prompt).
+                  </li>
+                  <li>
+                    Go to <strong>Users</strong> → row menu (⋯) → <strong>Copy push ID (OneSignal)</strong> — this is the same id OneSignal uses as{' '}
+                    <strong>External User ID</strong>.
+                  </li>
+                  <li>
+                    In OneSignal: <strong>Messages</strong> → <strong>New push</strong> → choose audience by{' '}
+                    <strong>External User ID</strong> (wording may vary) → paste that id → send a test.
+                  </li>
+                  <li>
+                    If they get nothing, check OneSignal <strong>Audience</strong> — the user must be subscribed on that device after logging in once with notifications allowed.
+                  </li>
+                </ol>
+              </div>
+            )}
           </CardContent>
         </Card>
 

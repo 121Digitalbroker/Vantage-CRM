@@ -1,6 +1,9 @@
 /**
  * OneSignal Web (Page SDK v16). Requires VITE_ONESIGNAL_APP_ID at build time.
  * @see https://documentation.onesignal.com/docs/web-push-setup
+ *
+ * Login/logout must run only after init completes — otherwise LoginManager throws
+ * (e.g. Cannot read properties of undefined reading minified props).
  */
 
 declare global {
@@ -15,6 +18,18 @@ type OneSignalNamespace = any;
 const appId = import.meta.env.VITE_ONESIGNAL_APP_ID as string | undefined;
 const safariWebId = import.meta.env.VITE_ONESIGNAL_SAFARI_WEB_ID as string | undefined;
 
+let resolveInitDone: (() => void) | undefined;
+let initDonePromise: Promise<void> | undefined;
+
+function ensureInitDonePromise(): Promise<void> {
+  if (!initDonePromise) {
+    initDonePromise = new Promise<void>((resolve) => {
+      resolveInitDone = resolve;
+    });
+  }
+  return initDonePromise;
+}
+
 export function initOneSignal(): void {
   if (!appId?.trim()) {
     if (import.meta.env.DEV) {
@@ -23,14 +38,20 @@ export function initOneSignal(): void {
     return;
   }
 
+  ensureInitDonePromise();
+
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   window.OneSignalDeferred.push(async (OneSignal: OneSignalNamespace) => {
-    await OneSignal.init({
-      appId: appId.trim(),
-      ...(safariWebId?.trim() ? { safari_web_id: safariWebId.trim() } : {}),
-      notifyButton: { enable: true },
-      allowLocalhostAsSecureOrigin: import.meta.env.DEV,
-    });
+    try {
+      await OneSignal.init({
+        appId: appId.trim(),
+        ...(safariWebId?.trim() ? { safari_web_id: safariWebId.trim() } : {}),
+        notifyButton: { enable: true },
+        allowLocalhostAsSecureOrigin: import.meta.env.DEV,
+      });
+    } finally {
+      resolveInitDone?.();
+    }
   });
 }
 
@@ -41,8 +62,11 @@ export function initOneSignal(): void {
 export function syncOneSignalUser(externalUserId: string | null): void {
   if (!appId?.trim()) return;
 
+  ensureInitDonePromise();
+
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   window.OneSignalDeferred.push(async (OneSignal: OneSignalNamespace) => {
+    await initDonePromise;
     try {
       if (externalUserId?.trim()) {
         await OneSignal.login(externalUserId.trim());
@@ -60,8 +84,12 @@ export function withOneSignal(
   fn: (OneSignal: OneSignalNamespace) => void | Promise<void>
 ): void {
   if (!appId?.trim()) return;
+  ensureInitDonePromise();
   window.OneSignalDeferred = window.OneSignalDeferred || [];
-  window.OneSignalDeferred.push(fn);
+  window.OneSignalDeferred.push(async (OneSignal: OneSignalNamespace) => {
+    await initDonePromise;
+    await fn(OneSignal);
+  });
 }
 
 /** Ask browser + OneSignal for notification permission (bell / slide prompt). */

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   UserPlus, MoreHorizontal, Edit, Ban, CheckCircle,
-  Users as UsersIcon, Phone, Key, Eye, EyeOff, Shield, Trash2,
+  Users as UsersIcon, Phone, Key, Eye, EyeOff, Shield, Trash2, Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -394,6 +394,17 @@ export default function Users() {
                           <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openEditDialog(user)}>
                             <Edit className="w-3.5 h-3.5 mr-2 text-slate-500" />
                             Edit Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="cursor-pointer text-xs"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(user.id).then(() => {
+                                toast.success('Copied OneSignal External User ID (same as CRM user id).');
+                              }).catch(() => toast.error('Could not copy'));
+                            }}
+                          >
+                            <Copy className="w-3.5 h-3.5 mr-2 text-slate-500" />
+                            Copy push ID (OneSignal)
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem

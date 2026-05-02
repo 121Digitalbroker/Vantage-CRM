@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabaseClient';
 import { Lead, LeadStatus, LeadLevel } from '@/types';
 import {
   demoFetchLeads,
+  demoFetchLeadsAssignedToAny,
   demoFetchLead,
   demoCreateLead,
   demoUpdateLead,
@@ -184,6 +185,23 @@ export async function fetchLeads(assignedToUserId?: string): Promise<Lead[]> {
   }
 
   const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapToLead);
+}
+
+/** Fetch leads assigned to any of the given users (e.g. manager + `managedUserIds`). */
+export async function fetchLeadsAssignedToAny(userIds: string[]): Promise<Lead[]> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  if (ids.length === 1) return fetchLeads(ids[0]);
+  if (useDemoLeads()) return demoFetchLeadsAssignedToAny(ids);
+
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .in('assigned_to', ids)
+    .order('created_at', { ascending: false });
+
   if (error) throw new Error(error.message);
   return (data ?? []).map(mapToLead);
 }

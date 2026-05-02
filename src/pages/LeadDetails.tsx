@@ -54,7 +54,8 @@ const getStatusBadgeColor = (status: LeadStatus) => {
 export default function LeadDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentUser, allUsers, telecallers } = useRole();
+  const { currentUser, allUsers, telecallers, isTelecaller } = useRole();
+  const showLeadHistoryTabs = !isTelecaller;
 
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,8 +89,8 @@ export default function LeadDetails() {
         fetchLead(id),
         getNotes(id),
         getFollowUps(id),
-        getAssignmentHistory(id),
-        getStatusHistory(id),
+        showLeadHistoryTabs ? getAssignmentHistory(id) : Promise.resolve([] as AssignmentHistory[]),
+        showLeadHistoryTabs ? getStatusHistory(id) : Promise.resolve([] as StatusHistory[]),
       ]);
       if (!leadData) { toast.error('Lead not found'); navigate('/leads'); return; }
       setLead(leadData);
@@ -105,7 +106,7 @@ export default function LeadDetails() {
     }
   };
 
-  useEffect(() => { loadData(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadData(); }, [id, showLeadHistoryTabs]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setLeadDetailTab('activity');
   }, [id]);
@@ -137,7 +138,7 @@ export default function LeadDetails() {
         currentUser.name
       );
       setLead(updated);
-      if (lead.status !== updated.status) {
+      if (showLeadHistoryTabs && lead.status !== updated.status) {
         setStatusHistory(await getStatusHistory(id));
       }
       setEditing(false);
@@ -362,7 +363,7 @@ export default function LeadDetails() {
               <div>
                 <p className="text-xs text-slate-500">Assigned To</p>
                 <p className="text-sm font-semibold text-slate-900">{getUserName(lead.assignedUserId)}</p>
-                {assignmentHistory.length > 0 && (
+                {showLeadHistoryTabs && assignmentHistory.length > 0 && (
                   <div className="mt-2 rounded-md border border-slate-100 bg-slate-50/80 px-2.5 py-2">
                     <p className="text-[0.65rem] font-medium uppercase tracking-wide text-slate-500">
                       Latest reassignment
@@ -424,8 +425,12 @@ export default function LeadDetails() {
                 <TabsList className="bg-slate-100/50 inline-flex min-w-min max-w-full flex-nowrap">
                   <TabsTrigger value="activity" className="shrink-0">Notes & Activity</TabsTrigger>
                   <TabsTrigger value="followups" className="shrink-0">Follow-ups ({followUps.length})</TabsTrigger>
-                  <TabsTrigger value="status" className="shrink-0">Status History ({statusHistory.length})</TabsTrigger>
-                  <TabsTrigger value="history" className="shrink-0">Assignment History ({assignmentHistory.length})</TabsTrigger>
+                  {showLeadHistoryTabs && (
+                    <>
+                      <TabsTrigger value="status" className="shrink-0">Status History ({statusHistory.length})</TabsTrigger>
+                      <TabsTrigger value="history" className="shrink-0">Assignment History ({assignmentHistory.length})</TabsTrigger>
+                    </>
+                  )}
                 </TabsList>
               </div>
               
@@ -575,7 +580,8 @@ export default function LeadDetails() {
                 )}
               </TabsContent>
 
-              {/* ── Status History tab ────────────────────────────────────── */}
+              {/* ── Status History tab (admin / manager / marketer only) ───── */}
+              {showLeadHistoryTabs && (
               <TabsContent value="status" className="p-6 m-0">
                 <h3 className="font-semibold text-slate-900 mb-4">Status Change History</h3>
                 {statusHistory.length === 0 ? (
@@ -627,8 +633,10 @@ export default function LeadDetails() {
                   </div>
                 )}
               </TabsContent>
+              )}
               
-              {/* ── Assignment History tab ────────────────────────────────── */}
+              {/* ── Assignment History tab (admin / manager / marketer only) ─ */}
+              {showLeadHistoryTabs && (
               <TabsContent value="history" className="p-6 m-0">
                 <h3 className="font-semibold text-slate-900 mb-4">Assignment History</h3>
                 {assignmentHistory.length === 0 ? (
@@ -674,6 +682,7 @@ export default function LeadDetails() {
                   </div>
                 )}
               </TabsContent>
+              )}
             </Tabs>
           </Card>
         </div>

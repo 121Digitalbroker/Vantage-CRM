@@ -142,6 +142,13 @@ export async function demoFetchLeads(assignedToUserId?: string): Promise<Lead[]>
   return cloneLeads(list);
 }
 
+/** Leads whose assignee is one of the given CRM user ids (manager + team). */
+export async function demoFetchLeadsAssignedToAny(userIds: string[]): Promise<Lead[]> {
+  const set = new Set(userIds.filter(Boolean));
+  const list = load().filter(l => set.has(l.assignedUserId));
+  return cloneLeads(list);
+}
+
 export async function demoFetchLead(id: string): Promise<Lead | null> {
   const list = load();
   return list.find(l => l.id === id) ?? null;

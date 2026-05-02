@@ -26,7 +26,18 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Lead, LeadStatus, LeadLevel, InvestmentBudget } from '@/types';
 import {
-  fetchLeads, createLead, createLeadWithDate, checkDuplicateLead, findLeadByNameAndPhone, updateLead, updateLeadWithAudit, assignLead, deleteLead, exportLeadsCSV, isAssignmentExpired,
+  fetchLeads,
+  fetchLeadsAssignedToAny,
+  createLead,
+  createLeadWithDate,
+  checkDuplicateLead,
+  findLeadByNameAndPhone,
+  updateLead,
+  updateLeadWithAudit,
+  assignLead,
+  deleteLead,
+  exportLeadsCSV,
+  isAssignmentExpired,
 } from '@/src/services/leadsService';
 import { addNote, addFollowUp } from '@/src/services/leadsService';
 import { useRole, isManagerKindRole } from '@/src/contexts/RoleContext';
@@ -146,7 +157,7 @@ const blankLeadForm = () => ({
 export default function Leads() {
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams();
-  const { currentUser, telecallers, allUsers, isAdmin, isManager, isDigitalMarketer } = useRole();
+  const { currentUser, telecallers, allUsers, isAdmin, isManager, isDigitalMarketer, managedUsers } = useRole();
   /** Full org directory (every lead). Telecallers + managers only see rows assigned to them. */
   const seesFullLeadDirectory = isAdmin || isDigitalMarketer;
   /** Admin + GM + Manager1: assignment column + reassign (managers only see their own rows but may hand off to team). */
@@ -188,6 +199,15 @@ export default function Leads() {
     [allUsers]
   );
 
+  /** Assignee filter options on scoped manager view: self + team telecallers only. */
+  const managerScopeAssignees = useMemo(() => {
+    if (!isManager || !currentUser) return [];
+    const byId = new Map<string, (typeof allUsers)[0]>();
+    byId.set(currentUser.id, currentUser);
+    for (const u of managedUsers) byId.set(u.id, u);
+    return [...byId.values()];
+  }, [isManager, currentUser, managedUsers]);
+
   const getUserName = (id: string) => {
     if (!id?.trim()) return 'Unassigned';
     return allUsers.find(u => u.id === id)?.name ?? telecallers.find(u => u.id === id)?.name ?? id;
@@ -200,6 +220,10 @@ export default function Leads() {
     try {
       if (seesFullLeadDirectory) {
         const data = await fetchLeads();
+        setLeads(data);
+      } else if (isManager && currentUser?.id) {
+        const scopeIds = [currentUser.id, ...managedUsers.map(u => u.id)];
+        const data = await fetchLeadsAssignedToAny(scopeIds);
         setLeads(data);
       } else if (currentUser?.id) {
         const data = await fetchLeads(currentUser.id);
@@ -214,7 +238,9 @@ export default function Leads() {
     }
   };
 
-  useEffect(() => { loadLeads(); }, [currentUser?.id, currentUser?.role, seesFullLeadDirectory]); // eslint-disable-line react-hooks/exhaustive-deps
+  const managedTeamKey = managedUsers.map(u => u.id).sort().join(',');
+
+  useEffect(() => { loadLeads(); }, [currentUser?.id, currentUser?.role, seesFullLeadDirectory, isManager, managedTeamKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSearchTerm(searchParams.get('q') ?? '');
@@ -872,7 +898,12 @@ export default function Leads() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Leads Management</h1>
           <p className="text-sm text-slate-500 mt-1">
             View, filter, and manage all real estate leads.
-            {!seesFullLeadDirectory && (
+            {!seesFullLeadDirectory && isManager && (
+              <span className="ml-2 text-xs font-medium text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                Showing leads assigned to you and your team
+              </span>
+            )}
+            {!seesFullLeadDirectory && !isManager && (
               <span className="ml-2 text-xs font-medium text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
                 Showing leads assigned to you only
               </span>
@@ -990,7 +1021,7 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
-            {seesFullLeadDirectory && (
+            {(seesFullLeadDirectory || isManager) && (
               <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
                 <SelectTrigger className="h-8 text-xs w-[150px] border-slate-200 bg-slate-50">
                   <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
@@ -999,7 +1030,9 @@ export default function Leads() {
                 <SelectContent>
                   <SelectItem value="All">All Assignees</SelectItem>
                   <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  {assigneeUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                  {(seesFullLeadDirectory ? assigneeUsers : managerScopeAssignees).map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
@@ -1374,7 +1407,8 @@ export default function Leads() {
         <div className="flex items-center justify-between text-xs text-slate-500 px-4 py-3 border-t border-slate-200">
           <div>
             Showing {sorted.length} of {leads.length} leads
-            {!seesFullLeadDirectory && ' (assigned to you)'}
+            {!seesFullLeadDirectory && isManager && ' (you and your team)'}
+            {!seesFullLeadDirectory && !isManager && ' (assigned to you)'}
           </div>
         </div>
       </div>}

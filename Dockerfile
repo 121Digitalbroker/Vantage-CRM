@@ -1,5 +1,12 @@
-# EstatesCRM — production image (Docker Hub only; avoids Nixpacks/ghcr.io timeouts on Coolify).
-# Coolify: set build type to Dockerfile if it still picks Nixpacks.
+# EstatesCRM — production image (Docker Hub only; avoids ghcr.io timeouts).
+#
+# If Coolify shows: FROM ghcr.io/railwayapp/nixpacks:... → you are on Nixpacks, not this file.
+# Fix in Coolify (see https://coolify.io/docs/applications/build-packs/dockerfile ):
+#   1. Resource → Configuration → Build
+#   2. Build Pack: change "Nixpacks" → "Dockerfile"
+#   3. Base Directory: / (or your app subfolder)
+#   4. Dockerfile: Dockerfile (this file at repo root)
+#   5. Save → Redeploy
 #
 # Build: docker build -t estatescrm .
 # Run:   docker run -p 3000:3000 -e PORT=3000 --env-file .env estatescrm

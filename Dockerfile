@@ -1,5 +1,11 @@
 # EstatesCRM — production image (Docker Hub only; avoids ghcr.io timeouts).
 #
+# Coolify: "git ls-remote https://github.com/... Failed to connect to github.com port 443"
+#   That happens BEFORE this Dockerfile runs — the build server cannot reach GitHub.
+#   Fix on the server/network (allow outbound HTTPS to github.com), OR in Coolify use a
+#   Source URL over SSH (git@github.com:ORG/REPO.git) + deploy key if port 22 works, OR
+#   build/push the image in GitHub Actions and deploy from a registry Coolify can reach.
+#
 # If Coolify shows: FROM ghcr.io/railwayapp/nixpacks:... → you are on Nixpacks, not this file.
 # Fix in Coolify (see https://coolify.io/docs/applications/build-packs/dockerfile ):
 #   1. Resource → Configuration → Build

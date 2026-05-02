@@ -7,6 +7,7 @@ function makeInitials(name: string): string {
 
 function normalizeRole(role: string): AppUser['role'] {
   if (role === 'Manager' || role === 'General Manager') return 'Manager';
+  if (role === 'Manager1') return 'Manager1';
   if (role === 'Digital Marketer') return 'Digital Marketer';
   if (role === 'Telecaller') return 'Telecaller';
   return 'Admin';

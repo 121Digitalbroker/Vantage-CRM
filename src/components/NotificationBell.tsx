@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { notificationService, type Notification } from '@/src/services/notificationService';
-import { useRole } from '@/src/contexts/RoleContext';
+import { useRole, isManagerKindRole } from '@/src/contexts/RoleContext';
 
 export default function NotificationBell() {
   const { currentUser } = useRole();
@@ -19,7 +19,7 @@ export default function NotificationBell() {
   const loadNotifications = () => {
     // Map the capitalized role ('Admin', 'Manager', 'Digital Marketer', 'Telecaller') to notification roles
     let userRole: 'admin' | 'telecaller' = 'telecaller';
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager' || currentUser?.role === 'Digital Marketer') {
+    if (currentUser?.role === 'Admin' || isManagerKindRole(currentUser?.role) || currentUser?.role === 'Digital Marketer') {
       userRole = 'admin';
     }
 
@@ -46,7 +46,7 @@ export default function NotificationBell() {
 
   const handleMarkAllAsRead = () => {
     let userRole: 'admin' | 'telecaller' = 'telecaller';
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Manager' || currentUser?.role === 'Digital Marketer') {
+    if (currentUser?.role === 'Admin' || isManagerKindRole(currentUser?.role) || currentUser?.role === 'Digital Marketer') {
       userRole = 'admin';
     }
     notificationService.markAllAsRead(userRole, currentUser?.id);

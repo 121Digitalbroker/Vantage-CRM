@@ -12,9 +12,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { useRole } from '@/src/contexts/RoleContext';
+import { useRole, isManagerKindRole } from '@/src/contexts/RoleContext';
 import type { Lead } from '@/types';
-import { assignLead, fetchLeads } from '@/src/services/leadsService';
+import { assignLead, fetchLeads, isAssignmentExpired } from '@/src/services/leadsService';
 import {
   loadLeadRotationConfig,
   normalizeProjectKey,
@@ -25,7 +25,7 @@ import {
 import { sendTestEmail } from '@/src/services/testEmailService';
 
 export default function LeadAssignmentRotation() {
-  const { allUsers, currentUser } = useRole();
+  const { allUsers, currentUser, telecallers } = useRole();
   const [enabled, setEnabled] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [nextRoundRobinIndex, setNextRoundRobinIndex] = useState(0);
@@ -46,7 +46,7 @@ export default function LeadAssignmentRotation() {
       allUsers.filter(
         (u) =>
           u.status === 'Active'
-          && (u.role === 'Telecaller' || u.role === 'Manager')
+          && (u.role === 'Telecaller' || isManagerKindRole(u.role))
       ),
     [allUsers]
   );
@@ -84,6 +84,45 @@ export default function LeadAssignmentRotation() {
     () => leads.filter((l) => normalizeProjectKey(l.project) === selectedProjectKey),
     [leads, selectedProjectKey]
   );
+
+  const projectDisplayLabel = useMemo(() => {
+    const row = projectSelectOptions.find(([k]) => k === selectedProjectKey);
+    return row?.[1] ?? (selectedProjectKey === '__default__' ? '(No project on lead)' : selectedProjectKey);
+  }, [projectSelectOptions, selectedProjectKey]);
+
+  const getAssigneeDisplayName = (userId: string) => {
+    if (!userId?.trim()) return '—';
+    return (
+      allUsers.find((u) => u.id === userId)?.name
+      ?? telecallers.find((u) => u.id === userId)?.name
+      ?? userId
+    );
+  };
+
+  const rotatingLeadsTimerRunning = useMemo(() => {
+    return leadsInScope
+      .filter(
+        (l) =>
+          l.assignedUserId?.trim()
+          && !l.lastStatusUpdate
+          && l.assignmentExpiresAt
+          && !isAssignmentExpired(l)
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.assignmentExpiresAt!).getTime() - new Date(b.assignmentExpiresAt!).getTime()
+      );
+  }, [leadsInScope, nowMs]);
+
+  const rotatingLeadsTimerExpired = useMemo(() => {
+    return leadsInScope.filter(
+      (l) =>
+        l.assignedUserId?.trim()
+        && !l.lastStatusUpdate
+        && l.assignmentExpiresAt
+        && isAssignmentExpired(l)
+    );
+  }, [leadsInScope, nowMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -235,6 +274,50 @@ export default function LeadAssignmentRotation() {
     }
     return sum;
   }, [leadsByUser]);
+
+  /** Leads in this project whose assignment timer is still running (will auto-rotate when it hits zero, if rotation is on). */
+  const liveTimerStats = useMemo(() => {
+    let activeRotating = 0;
+    let expiredPending = 0;
+    let nearestExpiryAt: number | null = null;
+    for (const l of leadsInScope) {
+      if (!l.assignedUserId?.trim() || l.lastStatusUpdate || !l.assignmentExpiresAt) continue;
+      if (isAssignmentExpired(l)) {
+        expiredPending += 1;
+      } else {
+        activeRotating += 1;
+        const t = new Date(l.assignmentExpiresAt).getTime();
+        if (nearestExpiryAt == null || t < nearestExpiryAt) nearestExpiryAt = t;
+      }
+    }
+    return { activeRotating, expiredPending, nearestExpiryAt };
+  }, [leadsInScope, nowMs]);
+
+  const soonestHandoffLabel = useMemo(() => {
+    const t = liveTimerStats.nearestExpiryAt;
+    if (t == null) return '—';
+    const diffMs = t - nowMs;
+    if (diffMs <= 0) return '—';
+    const totalSec = Math.floor(diffMs / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m >= 120) {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      return `${h}h ${mm}m`;
+    }
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }, [liveTimerStats.nearestExpiryAt, nowMs]);
+
+  const assignmentWindowMinutes = useMemo(() => {
+    try {
+      const n = parseInt(localStorage.getItem('crm_assignment_timer_minutes') || '60', 10);
+      return Number.isFinite(n) && n > 0 ? n : 60;
+    } catch {
+      return 60;
+    }
+  }, []);
 
   const getLeadTimerLabel = (lead: Lead): string => {
     if (!lead.assignedUserId) return 'Unassigned';
@@ -500,16 +583,38 @@ export default function LeadAssignmentRotation() {
         <CardHeader>
           <CardTitle className="text-base">Live Rotation Data</CardTitle>
           <CardDescription>
-            Scoped to the <span className="font-medium text-slate-700">selected project</span> above: queue pointer,
-            timers, and assigned leads shown here are only for leads in that project.
+            Scoped to the <span className="font-medium text-slate-700">selected project</span> above.{' '}
+            <span className="font-medium text-slate-700">Active timers</span> are assigned leads with no status change
+            yet — they count down to auto handoff when rotation is enabled and an admin session is running the checker
+            (~every 1 min). Window length: <span className="font-medium">{assignmentWindowMinutes} min</span> (Settings).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs text-slate-500">Rotation Status</p>
               <p className={`text-sm font-semibold mt-1 ${enabled ? 'text-emerald-600' : 'text-slate-600'}`}>
                 {enabled ? 'Enabled' : 'Disabled'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+              <p className="text-xs text-emerald-800 font-medium">Timers running now</p>
+              <p className="text-lg font-bold text-emerald-900 mt-0.5 tabular-nums">
+                {liveTimerStats.activeRotating}
+              </p>
+              <p className="text-[0.65rem] text-emerald-800/90 mt-1 leading-snug">
+                Soonest handoff in <span className="font-semibold">{soonestHandoffLabel}</span>
+              </p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+              <p className="text-xs text-amber-900 font-medium">Timer expired (pending)</p>
+              <p className="text-lg font-bold text-amber-950 mt-0.5 tabular-nums">
+                {liveTimerStats.expiredPending}
+              </p>
+              <p className="text-[0.65rem] text-amber-900/90 mt-1 leading-snug">
+                {enabled
+                  ? 'Next admin poll (~1 min) can reassign these.'
+                  : 'Enable rotation + admin checker to hand off.'}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
@@ -528,6 +633,78 @@ export default function LeadAssignmentRotation() {
               <p className="text-xs text-slate-500">Assigned in this project</p>
               <p className="text-sm font-semibold mt-1 text-slate-900">{totalAssignedToRotation}</p>
             </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Who is on the rotation clock (by name)</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                <span className="font-medium text-slate-700">Project:</span>{' '}
+                <span className="text-slate-800">{projectDisplayLabel}</span>
+                {' · '}Each row is a lead still counting down (or just expired) before auto handoff — with the
+                <span className="font-medium text-slate-700"> user who currently owns</span> that lead.
+              </p>
+            </div>
+
+            {rotatingLeadsTimerRunning.length === 0 && rotatingLeadsTimerExpired.length === 0 ? (
+              <p className="text-sm text-slate-500 py-1">
+                No leads in an active rotation window for this project. If assignees updated status, the timer
+                stopped; unassigned leads are not listed here.
+              </p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {rotatingLeadsTimerRunning.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-800 mb-2">
+                      Timer running ({rotatingLeadsTimerRunning.length})
+                    </p>
+                    <ul className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                      {rotatingLeadsTimerRunning.map((lead) => (
+                        <li
+                          key={lead.id}
+                          className="rounded-md border border-emerald-100 bg-white px-3 py-2 text-xs shadow-sm"
+                        >
+                          <div className="font-semibold text-slate-900">{lead.clientName}</div>
+                          <div className="text-slate-600 mt-0.5">
+                            Assigned to{' '}
+                            <span className="font-medium text-slate-800">
+                              {getAssigneeDisplayName(lead.assignedUserId)}
+                            </span>
+                          </div>
+                          <div className="text-emerald-700 font-medium tabular-nums mt-1">
+                            {getLeadTimerLabel(lead)}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {rotatingLeadsTimerExpired.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-amber-900 mb-2">
+                      Timer expired — pending handoff ({rotatingLeadsTimerExpired.length})
+                    </p>
+                    <ul className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                      {rotatingLeadsTimerExpired.map((lead) => (
+                        <li
+                          key={lead.id}
+                          className="rounded-md border border-amber-100 bg-white px-3 py-2 text-xs shadow-sm"
+                        >
+                          <div className="font-semibold text-slate-900">{lead.clientName}</div>
+                          <div className="text-slate-600 mt-0.5">
+                            With{' '}
+                            <span className="font-medium text-slate-800">
+                              {getAssigneeDisplayName(lead.assignedUserId)}
+                            </span>
+                          </div>
+                          <div className="text-amber-800 font-medium mt-1">Expired — next admin check can rotate</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end">

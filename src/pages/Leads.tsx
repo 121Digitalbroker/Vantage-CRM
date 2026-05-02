@@ -29,7 +29,7 @@ import {
   fetchLeads, createLead, createLeadWithDate, checkDuplicateLead, findLeadByNameAndPhone, updateLead, updateLeadWithAudit, assignLead, deleteLead, exportLeadsCSV, isAssignmentExpired,
 } from '@/src/services/leadsService';
 import { addNote, addFollowUp } from '@/src/services/leadsService';
-import { useRole } from '@/src/contexts/RoleContext';
+import { useRole, isManagerKindRole } from '@/src/contexts/RoleContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEAD_STATUSES: LeadStatus[] = [
@@ -175,7 +175,7 @@ export default function Leads() {
   const [saving, setSaving]             = useState(false);
   const [viewMode, setViewMode]         = useState<'table' | 'pipeline'>('table');
   const assigneeUsers = useMemo(
-    () => allUsers.filter(u => u.status === 'Active' && (u.role === 'Telecaller' || u.role === 'Manager')),
+    () => allUsers.filter(u => u.status === 'Active' && (u.role === 'Telecaller' || isManagerKindRole(u.role))),
     [allUsers]
   );
 

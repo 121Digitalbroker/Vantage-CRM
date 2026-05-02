@@ -20,12 +20,13 @@ import {
   DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useRole, UserRole } from '@/src/contexts/RoleContext';
+import { useRole, UserRole, isManagerKindRole } from '@/src/contexts/RoleContext';
 import { format } from 'date-fns';
 
 const roleBadgeColors: Record<string, string> = {
   Admin:      'bg-purple-50 text-purple-700 border-purple-200',
   Manager:    'bg-blue-50 text-blue-700 border-blue-200',
+  Manager1:   'bg-indigo-50 text-indigo-800 border-indigo-200',
   'Digital Marketer': 'bg-orange-50 text-orange-700 border-orange-200',
   Telecaller: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
@@ -33,6 +34,7 @@ const roleBadgeColors: Record<string, string> = {
 const roleAvatarColors: Record<string, string> = {
   Admin:      'bg-purple-500',
   Manager:    'bg-blue-500',
+  Manager1:   'bg-indigo-600',
   'Digital Marketer': 'bg-orange-500',
   Telecaller: 'bg-emerald-500',
 };
@@ -40,7 +42,7 @@ const roleAvatarColors: Record<string, string> = {
 export default function Users() {
   const { allUsers, addTelecaller, editUser, toggleUserStatus, resetPassword, removeUser } = useRole();
   const displayRole = (role: UserRole) => (role === 'Manager' ? 'General Manager' : role);
-  const generalManagers = allUsers.filter(u => u.role === 'Manager' && u.status === 'Active');
+  const generalManagers = allUsers.filter(u => isManagerKindRole(u.role) && u.status === 'Active');
 
   // ── Add user dialog ────────────────────────────────────────────────────────
   const [dialogOpen,   setDialogOpen]   = useState(false);
@@ -159,7 +161,7 @@ export default function Users() {
     total:       allUsers.length,
     telecallers: allUsers.filter(u => u.role === 'Telecaller').length,
     active:      allUsers.filter(u => u.status === 'Active').length,
-    admins:      allUsers.filter(u => u.role === 'Admin' || u.role === 'Manager' || u.role === 'Digital Marketer').length,
+    admins:      allUsers.filter(u => u.role === 'Admin' || isManagerKindRole(u.role) || u.role === 'Digital Marketer').length,
   };
 
   return (
@@ -263,16 +265,17 @@ export default function Users() {
                     <SelectItem value="Telecaller">Telecaller</SelectItem>
                     <SelectItem value="Digital Marketer">Digital Marketer</SelectItem>
                     <SelectItem value="Manager">General Manager</SelectItem>
+                    <SelectItem value="Manager1">Manager1</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {form.role === 'Telecaller' && (
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Assign General Manager</Label>
+                  <Label className="text-sm font-medium text-slate-700">Assign manager (GM or Manager1)</Label>
                   <Select value={form.managerId || 'none'} onValueChange={v => setForm(f => ({ ...f, managerId: v === 'none' ? '' : v }))}>
                     <SelectTrigger className="h-9 border-slate-200 text-sm">
-                      <SelectValue placeholder="Select general manager" />
+                      <SelectValue placeholder="Select manager" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No manager</SelectItem>
@@ -500,6 +503,7 @@ export default function Users() {
                   <SelectItem value="Admin">Admin</SelectItem>
                   <SelectItem value="Digital Marketer">Digital Marketer</SelectItem>
                   <SelectItem value="Manager">General Manager</SelectItem>
+                  <SelectItem value="Manager1">Manager1</SelectItem>
                   <SelectItem value="Telecaller">Telecaller</SelectItem>
                 </SelectContent>
               </Select>
@@ -507,10 +511,10 @@ export default function Users() {
 
             {editForm.role === 'Telecaller' && (
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium text-slate-700">Assign General Manager</Label>
+                <Label className="text-sm font-medium text-slate-700">Assign manager (GM or Manager1)</Label>
                 <Select value={editForm.managerId || 'none'} onValueChange={v => setEditForm(f => ({ ...f, managerId: v === 'none' ? '' : v }))}>
                   <SelectTrigger className="h-9 border-slate-200 text-sm">
-                    <SelectValue placeholder="Select general manager" />
+                    <SelectValue placeholder="Select manager" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">No manager</SelectItem>

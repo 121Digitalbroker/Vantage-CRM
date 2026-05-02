@@ -63,6 +63,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
   const roleColor: Record<string, string> = {
     Admin:      'bg-blue-500',
     Manager:    'bg-purple-500',
+    Manager1:   'bg-indigo-600',
     'Digital Marketer': 'bg-orange-500',
     Telecaller: 'bg-emerald-500',
   };

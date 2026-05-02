@@ -3,7 +3,12 @@ import { fetchUsers, createUser, updateUserStatus, resetUserPassword, updateUser
 import { supabase } from '@/lib/supabaseClient';
 import { syncOneSignalUser } from '@/src/lib/onesignal';
 
-export type UserRole = 'Admin' | 'Manager' | 'Digital Marketer' | 'Telecaller';
+export type UserRole = 'Admin' | 'Manager' | 'Manager1' | 'Digital Marketer' | 'Telecaller';
+
+/** General Manager (`Manager`) or secondary team lead (`Manager1`) — same app privileges as GM. */
+export function isManagerKindRole(role: string | undefined | null): boolean {
+  return role === 'Manager' || role === 'Manager1';
+}
 
 export interface AppUser {
   id: string;
@@ -44,6 +49,7 @@ function makeInitials(name: string): string {
 
 function normalizeRole(role: string): UserRole {
   if (role === 'Manager' || role === 'General Manager') return 'Manager';
+  if (role === 'Manager1') return 'Manager1';
   if (role === 'Digital Marketer') return 'Digital Marketer';
   if (role === 'Telecaller') return 'Telecaller';
   return 'Admin';
@@ -268,7 +274,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         managedUserIds,
         isAuthenticated: currentUser !== null,
         isAdmin:      currentUser?.role === 'Admin',
-        isManager:    currentUser?.role === 'Manager',
+        isManager:    isManagerKindRole(currentUser?.role),
         isDigitalMarketer: currentUser?.role === 'Digital Marketer',
         isTelecaller: currentUser?.role === 'Telecaller',
         login,

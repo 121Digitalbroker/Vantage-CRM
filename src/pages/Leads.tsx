@@ -145,7 +145,7 @@ const blankLeadForm = () => ({
 export default function Leads() {
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams();
-  const { currentUser, telecallers, allUsers, isAdmin, isTelecaller, isManager, managedUserIds } = useRole();
+  const { currentUser, telecallers, allUsers, isAdmin, isTelecaller } = useRole();
 
   const [leads,        setLeads]       = useState<Lead[]>([]);
   const [loading,      setLoading]     = useState(true);
@@ -192,10 +192,8 @@ export default function Leads() {
       if (isTelecaller) {
         const data = await fetchLeads(currentUser.id);
         setLeads(data);
-      } else if (isManager) {
-        const data = await fetchLeads();
-        setLeads(data.filter(l => managedUserIds.includes(l.assignedUserId) || l.assignedUserId === currentUser.id));
       } else {
+        // Admin + General Manager (role stored as Manager): full lead list
         const data = await fetchLeads();
         setLeads(data);
       }
@@ -206,7 +204,7 @@ export default function Leads() {
     }
   };
 
-  useEffect(() => { loadLeads(); }, [currentUser.id, isTelecaller, isManager, managedUserIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadLeads(); }, [currentUser.id, isTelecaller]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSearchTerm(searchParams.get('q') ?? '');

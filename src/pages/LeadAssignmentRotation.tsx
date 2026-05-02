@@ -217,10 +217,10 @@ export default function LeadAssignmentRotation() {
         <CardHeader>
           <CardTitle className="text-base">Rotation Controls</CardTitle>
           <CardDescription>
-            Turn this on to distribute incoming leads one-by-one to selected users. With production
-            Supabase (<code className="text-[11px] bg-slate-100 px-1 rounded">VITE_USE_DEMO_LEADS=false</code>
-            ), settings are stored in the database so every device sees the same order after you click
-            Save. Run <code className="text-[11px] bg-slate-100 px-1 rounded">supabase-crm-lead-rotation-config.sql</code> once if saves fail.
+            Turn this on to distribute incoming leads one-by-one to selected users. After you click
+            Save, rotation settings are stored in the database so every device stays in sync. Run{' '}
+            <code className="text-[11px] bg-slate-100 px-1 rounded">supabase-crm-lead-rotation-config.sql</code>{' '}
+            once in Supabase if saving fails.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

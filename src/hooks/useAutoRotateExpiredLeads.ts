@@ -5,8 +5,8 @@
  * Every CHECK_INTERVAL_MS it:
  *   1. Fetches all leads
  *   2. Finds any with an expired assignment timer (no status update yet)
- *   3. If round-robin rotation is enabled, re-assigns each expired lead to
- *      the next person in the rotation queue
+ *   3. For each, loads rotation config for that lead's **project**; if enabled,
+ *      re-assigns to the next user in **that project's** queue
  *   4. Shows a toast so the admin knows what happened
  */
 import { useEffect, useRef } from 'react';
@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { fetchLeads, assignLead, isAssignmentExpired } from '@/src/services/leadsService';
 import {
   loadLeadRotationConfig,
+  normalizeProjectKey,
   takeNextRoundRobinAssigneeId,
 } from '@/src/services/leadRotationService';
 import { useRole } from '@/src/contexts/RoleContext';
@@ -23,24 +24,14 @@ const CHECK_INTERVAL_MS = 60_000; // check every 60 seconds
 
 export function useAutoRotateExpiredLeads() {
   const { isAdmin, allUsers, currentUser } = useRole();
-  // Keep allUsers in a ref so the interval always sees the latest value
   const allUsersRef = useRef(allUsers);
   useEffect(() => { allUsersRef.current = allUsers; }, [allUsers]);
 
   useEffect(() => {
-    // Only admins run the background checker
     if (!isAdmin) return;
 
     const run = async () => {
-      let config: Awaited<ReturnType<typeof loadLeadRotationConfig>>;
-      try {
-        config = await loadLeadRotationConfig();
-      } catch {
-        return;
-      }
-      if (!config.enabled || config.selectedUserIds.length === 0) return;
-
-      let leads: ReturnType<typeof fetchLeads> extends Promise<infer T> ? T : never;
+      let leads: Awaited<ReturnType<typeof fetchLeads>>;
       try {
         leads = await fetchLeads();
       } catch {
@@ -57,7 +48,16 @@ export function useAutoRotateExpiredLeads() {
       let reassignedCount = 0;
 
       for (const lead of expired) {
-        const nextId = await takeNextRoundRobinAssigneeId();
+        const projectKey = normalizeProjectKey(lead.project);
+        let config: Awaited<ReturnType<typeof loadLeadRotationConfig>>;
+        try {
+          config = await loadLeadRotationConfig(projectKey);
+        } catch {
+          continue;
+        }
+        if (!config.enabled || config.selectedUserIds.length === 0) continue;
+
+        const nextId = await takeNextRoundRobinAssigneeId(projectKey);
         if (!nextId) continue;
 
         try {
@@ -66,7 +66,7 @@ export function useAutoRotateExpiredLeads() {
           const nextName = byId.get(nextId)?.name ?? nextId;
           const prevName = byId.get(lead.assignedUserId)?.name ?? lead.assignedUserId;
           toast.info(
-            `⏱ Timer expired: "${lead.clientName}" moved from ${prevName} → ${nextName}`,
+            `⏱ Timer expired: "${lead.clientName}" (${projectKey === '__default__' ? 'default project' : projectKey}) ${prevName} → ${nextName}`,
             { duration: 6000 },
           );
         } catch {
@@ -79,7 +79,6 @@ export function useAutoRotateExpiredLeads() {
       }
     };
 
-    // Run immediately on mount, then repeat
     void run();
     const timer = window.setInterval(() => { void run(); }, CHECK_INTERVAL_MS);
     return () => window.clearInterval(timer);

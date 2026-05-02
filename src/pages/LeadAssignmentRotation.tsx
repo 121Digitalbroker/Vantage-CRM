@@ -3,12 +3,21 @@ import { ArrowDown, ArrowUp, Mail, Save, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import { useRole } from '@/src/contexts/RoleContext';
 import type { Lead } from '@/types';
 import { assignLead, fetchLeads } from '@/src/services/leadsService';
 import {
   loadLeadRotationConfig,
+  normalizeProjectKey,
   peekLeadRotationNextIndex,
   persistLeadRotationConfig,
   takeNextRoundRobinAssigneeId,
@@ -28,6 +37,10 @@ export default function LeadAssignmentRotation() {
   const [testEmailSecret, setTestEmailSecret] = useState('');
   const [testEmailSending, setTestEmailSending] = useState(false);
 
+  /** Rotation queue is scoped by `Lead.project` (normalized). */
+  const [selectedProjectKey, setSelectedProjectKey] = useState('__default__');
+  const [manualProjectKey, setManualProjectKey] = useState('');
+
   const assignableUsers = useMemo(
     () =>
       allUsers.filter(
@@ -43,13 +56,42 @@ export default function LeadAssignmentRotation() {
     return selectedUserIds.map((id) => byId.get(id)).filter(Boolean);
   }, [assignableUsers, selectedUserIds]);
 
+  const projectChoices = useMemo((): [string, string][] => {
+    const m = new Map<string, string>();
+    for (const l of leads) {
+      const k = normalizeProjectKey(l.project);
+      const label = k === '__default__' ? '(No project on lead)' : (l.project?.trim() || k);
+      if (!m.has(k)) m.set(k, label);
+    }
+    if (!m.has('__default__')) {
+      m.set('__default__', '(No project on lead)');
+    }
+    return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  }, [leads]);
+
+  const projectSelectOptions = useMemo((): [string, string][] => {
+    const m = new Map<string, string>(projectChoices);
+    if (!m.has(selectedProjectKey)) {
+      m.set(
+        selectedProjectKey,
+        selectedProjectKey === '__default__' ? '(No project on lead)' : selectedProjectKey
+      );
+    }
+    return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  }, [projectChoices, selectedProjectKey]);
+
+  const leadsInScope = useMemo(
+    () => leads.filter((l) => normalizeProjectKey(l.project) === selectedProjectKey),
+    [leads, selectedProjectKey]
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setRotationLoading(true);
       try {
-        const config = await loadLeadRotationConfig();
-        const peek = await peekLeadRotationNextIndex();
+        const config = await loadLeadRotationConfig(selectedProjectKey);
+        const peek = await peekLeadRotationNextIndex(selectedProjectKey);
         if (cancelled) return;
         setEnabled(config.enabled);
         setSelectedUserIds(config.selectedUserIds);
@@ -63,7 +105,7 @@ export default function LeadAssignmentRotation() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedProjectKey]);
 
   useEffect(() => {
     let active = true;
@@ -111,9 +153,11 @@ export default function LeadAssignmentRotation() {
   const handleSave = async () => {
     setRotationSaving(true);
     try {
-      await persistLeadRotationConfig({ enabled, selectedUserIds });
-      setNextRoundRobinIndex(await peekLeadRotationNextIndex());
-      toast.success('Lead rotation saved — visible on all devices using the same database');
+      await persistLeadRotationConfig(selectedProjectKey, { enabled, selectedUserIds });
+      setNextRoundRobinIndex(await peekLeadRotationNextIndex(selectedProjectKey));
+      toast.success(
+        `Rotation saved for "${selectedProjectKey === '__default__' ? 'default / no project' : selectedProjectKey}"`
+      );
     } catch {
       toast.error('Failed to save rotation settings');
     } finally {
@@ -135,16 +179,17 @@ export default function LeadAssignmentRotation() {
       const allLeads = await fetchLeads();
       const unassigned = allLeads
         .filter((lead) => !lead.assignedUserId?.trim())
+        .filter((lead) => normalizeProjectKey(lead.project) === selectedProjectKey)
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
       if (unassigned.length === 0) {
-        toast.success('No unassigned leads found');
+        toast.success('No unassigned leads for this project');
         return;
       }
 
       let assignedCount = 0;
       for (const lead of unassigned) {
-        const nextAssigneeId = await takeNextRoundRobinAssigneeId();
+        const nextAssigneeId = await takeNextRoundRobinAssigneeId(selectedProjectKey);
         if (!nextAssigneeId) continue;
         await assignLead(lead.id, nextAssigneeId, currentUser?.name || 'System');
         assignedCount += 1;
@@ -152,7 +197,7 @@ export default function LeadAssignmentRotation() {
 
       const refreshed = await fetchLeads();
       setLeads(refreshed);
-      setNextRoundRobinIndex(await peekLeadRotationNextIndex());
+      setNextRoundRobinIndex(await peekLeadRotationNextIndex(selectedProjectKey));
       if (assignedCount > 0) {
         toast.success(`${assignedCount} unassigned lead(s) rotated successfully`);
       } else {
@@ -171,7 +216,7 @@ export default function LeadAssignmentRotation() {
   const leadsByUser = useMemo(() => {
     const map = new Map<string, Lead[]>();
     for (const user of selectedUsers) map.set(user.id, []);
-    for (const lead of leads) {
+    for (const lead of leadsInScope) {
       if (!lead.assignedUserId) continue;
       const arr = map.get(lead.assignedUserId);
       if (!arr) continue;
@@ -181,7 +226,7 @@ export default function LeadAssignmentRotation() {
       arr.sort((a, b) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }
     return map;
-  }, [leads, selectedUsers]);
+  }, [leadsInScope, selectedUsers]);
 
   const totalAssignedToRotation = useMemo(() => {
     let sum = 0;
@@ -217,16 +262,74 @@ export default function LeadAssignmentRotation() {
         <CardHeader>
           <CardTitle className="text-base">Rotation Controls</CardTitle>
           <CardDescription>
-            Turn this on to distribute incoming leads one-by-one to selected users. After you click
-            Save, rotation settings are stored in the database so every device stays in sync. Run{' '}
+            Pick a <strong className="font-medium text-slate-700">project</strong> first — each project has its own
+            assignee order and round-robin pointer. Only leads whose <strong className="font-medium text-slate-700">Project</strong>{' '}
+            field matches see this queue. After Save, settings are stored in the database. Run{' '}
             <code className="text-[11px] bg-slate-100 px-1 rounded">supabase-crm-lead-rotation-config.sql</code>{' '}
-            once in Supabase if saving fails.
+            in Supabase if saving fails.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {rotationLoading && (
             <p className="text-xs text-slate-500">Loading rotation settings…</p>
           )}
+
+          <div className="rounded-lg border border-slate-200 p-4 space-y-3 bg-slate-50/40">
+            <div>
+              <Label className="text-xs font-medium text-slate-800">Project scope</Label>
+              <p className="text-xs text-slate-500 mt-1 mb-2">
+                Leads are matched on the exact <span className="font-medium">Project / Form</span> string (trimmed).
+                Configure a separate queue per campaign or form name.
+              </p>
+              <Select
+                value={selectedProjectKey}
+                onValueChange={setSelectedProjectKey}
+                disabled={rotationLoading}
+              >
+                <SelectTrigger className="w-full max-w-xl bg-white">
+                  <SelectValue placeholder="Select project" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projectSelectOptions.map(([key, label]) => (
+                    <SelectItem key={key} value={key}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="flex-1 min-w-[200px]">
+                <Label className="text-xs text-slate-500">Or type a project name</Label>
+                <Input
+                  value={manualProjectKey}
+                  onChange={(e) => setManualProjectKey(e.target.value)}
+                  placeholder="Paste project string from a lead…"
+                  className="mt-1 bg-white"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="shrink-0"
+                disabled={rotationLoading}
+                onClick={() => {
+                  const k = normalizeProjectKey(manualProjectKey);
+                  setSelectedProjectKey(k);
+                  setManualProjectKey('');
+                  toast.message(
+                    k === '__default__'
+                      ? 'Using default bucket (empty project name).'
+                      : `Editing rotation for: ${k}`
+                  );
+                }}
+              >
+                Use typed project
+              </Button>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3">
             <div>
               <p className="text-sm font-medium text-slate-900">Enable round-robin assignment</p>
@@ -397,7 +500,8 @@ export default function LeadAssignmentRotation() {
         <CardHeader>
           <CardTitle className="text-base">Live Rotation Data</CardTitle>
           <CardDescription>
-            Current queue pointer, timer state, and leads held by selected users.
+            Scoped to the <span className="font-medium text-slate-700">selected project</span> above: queue pointer,
+            timers, and assigned leads shown here are only for leads in that project.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -421,7 +525,7 @@ export default function LeadAssignmentRotation() {
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs text-slate-500">Assigned Leads (Selected Users)</p>
+              <p className="text-xs text-slate-500">Assigned in this project</p>
               <p className="text-sm font-semibold mt-1 text-slate-900">{totalAssignedToRotation}</p>
             </div>
           </div>
@@ -434,12 +538,12 @@ export default function LeadAssignmentRotation() {
               disabled={rotationLoading}
               onClick={() => { void rotateUnassignedLeadsNow(); }}
             >
-              Rotate Unassigned Leads Now
+              Rotate unassigned (this project only)
             </Button>
           </div>
 
           <div className="rounded-lg border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">Who Has Which Lead Right Now</h3>
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">Who has which lead (this project)</h3>
             <div className="space-y-3">
               {selectedUsers.length === 0 && (
                 <p className="text-xs text-slate-500">No users selected in rotation.</p>

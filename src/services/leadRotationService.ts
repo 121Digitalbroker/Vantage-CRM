@@ -1,51 +1,67 @@
 import { supabase } from '@/lib/supabaseClient';
 import { useDemoLeads } from '@/src/services/leadsService';
 
-const STORAGE_ENABLED_KEY = 'crm_lead_rotation_enabled';
-const STORAGE_USER_IDS_KEY = 'crm_lead_rotation_user_ids';
-const STORAGE_NEXT_INDEX_KEY = 'crm_lead_rotation_next_index';
+/** localStorage map for demo mode */
+const LS_BY_PROJECT_KEY = 'crm_lead_rotation_by_project';
 
-const ROTATION_ROW_ID = 1;
+const TABLE = 'crm_lead_rotation_by_project';
 
 export interface LeadRotationConfig {
   enabled: boolean;
   selectedUserIds: string[];
 }
 
-function parseBoolean(raw: string | null): boolean {
-  return raw === 'true' || raw === '1';
+/** Stable key for `leads.project` (trimmed). Empty / missing → shared default queue. */
+export function normalizeProjectKey(project: string | undefined | null): string {
+  const t = String(project ?? '').trim();
+  return t.length > 0 ? t : '__default__';
 }
 
-function parseJsonArray(raw: string | null): string[] {
-  if (!raw) return [];
+interface StoredProjectRow {
+  enabled: boolean;
+  selectedUserIds: string[];
+  nextIndex: number;
+}
+
+type LocalProjectMap = Record<string, StoredProjectRow>;
+
+function readLocalMap(): LocalProjectMap {
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((id) => String(id)).filter(Boolean);
+    const raw = localStorage.getItem(LS_BY_PROJECT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as LocalProjectMap;
   } catch {
-    return [];
+    return {};
   }
 }
 
-function readLocalNextIndex(): number {
-  const n = Number.parseInt(localStorage.getItem(STORAGE_NEXT_INDEX_KEY) || '0', 10);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+function writeLocalMap(map: LocalProjectMap): void {
+  localStorage.setItem(LS_BY_PROJECT_KEY, JSON.stringify(map));
 }
 
-function writeLocalNextIndex(index: number): void {
-  localStorage.setItem(STORAGE_NEXT_INDEX_KEY, String(index));
-}
-
-function readLocalConfig(): LeadRotationConfig {
+function readLocalRow(projectKey: string): StoredProjectRow {
+  const map = readLocalMap();
+  const row = map[projectKey];
   return {
-    enabled: parseBoolean(localStorage.getItem(STORAGE_ENABLED_KEY)),
-    selectedUserIds: parseJsonArray(localStorage.getItem(STORAGE_USER_IDS_KEY)),
+    enabled: row?.enabled ?? false,
+    selectedUserIds: Array.isArray(row?.selectedUserIds)
+      ? row!.selectedUserIds.map(String).filter(Boolean)
+      : [],
+    nextIndex: Number.isFinite(row?.nextIndex) && (row!.nextIndex as number) >= 0 ? (row!.nextIndex as number) : 0,
   };
 }
 
-function writeLocalConfig(config: LeadRotationConfig): void {
-  localStorage.setItem(STORAGE_ENABLED_KEY, config.enabled ? 'true' : 'false');
-  localStorage.setItem(STORAGE_USER_IDS_KEY, JSON.stringify(config.selectedUserIds));
+function writeLocalRow(projectKey: string, patch: Partial<StoredProjectRow>): void {
+  const map = readLocalMap();
+  const prev = readLocalRow(projectKey);
+  map[projectKey] = {
+    enabled: patch.enabled ?? prev.enabled,
+    selectedUserIds: patch.selectedUserIds ?? prev.selectedUserIds,
+    nextIndex: patch.nextIndex ?? prev.nextIndex,
+  };
+  writeLocalMap(map);
 }
 
 function isMissingRotationTableError(error: { message?: string; code?: string; details?: string }): boolean {
@@ -67,24 +83,29 @@ function normalizeUserIds(raw: unknown): string[] {
 }
 
 /**
- * Load rotation settings (Supabase when not in demo mode, else this browser's localStorage).
+ * Load rotation for one project (`project_key` matches `normalizeProjectKey(lead.project)`).
  */
-export async function loadLeadRotationConfig(): Promise<LeadRotationConfig> {
-  if (useDemoLeads()) return readLocalConfig();
+export async function loadLeadRotationConfig(projectKey: string): Promise<LeadRotationConfig> {
+  const key = normalizeProjectKey(projectKey);
+  if (useDemoLeads()) {
+    const row = readLocalRow(key);
+    return { enabled: row.enabled, selectedUserIds: row.selectedUserIds };
+  }
 
   const { data, error } = await supabase
-    .from('crm_lead_rotation_config')
+    .from(TABLE)
     .select('enabled, selected_user_ids')
-    .eq('id', ROTATION_ROW_ID)
+    .eq('project_key', key)
     .maybeSingle();
 
   if (error) {
     if (isMissingRotationTableError(error)) {
       console.warn(
-        '[CRM] crm_lead_rotation_config missing; using localStorage for this browser. Run supabase-crm-lead-rotation-config.sql.',
+        '[CRM] crm_lead_rotation_by_project missing; using localStorage. Run supabase-crm-lead-rotation-config.sql.',
         error.message
       );
-      return readLocalConfig();
+      const row = readLocalRow(key);
+      return { enabled: row.enabled, selectedUserIds: row.selectedUserIds };
     }
     throw new Error(error.message);
   }
@@ -99,72 +120,75 @@ export async function loadLeadRotationConfig(): Promise<LeadRotationConfig> {
   };
 }
 
-async function ensureSupabaseRotationRow(): Promise<void> {
+async function ensureSupabaseProjectRow(projectKey: string): Promise<void> {
   const { data, error } = await supabase
-    .from('crm_lead_rotation_config')
-    .select('id')
-    .eq('id', ROTATION_ROW_ID)
+    .from(TABLE)
+    .select('project_key')
+    .eq('project_key', projectKey)
     .maybeSingle();
 
   if (error && !isMissingRotationTableError(error)) throw new Error(error.message);
   if (error && isMissingRotationTableError(error)) throw error;
   if (data) return;
 
-  const { error: insertError } = await supabase.from('crm_lead_rotation_config').insert({
-    id: ROTATION_ROW_ID,
+  const { error: insertError } = await supabase.from(TABLE).insert({
+    project_key: projectKey,
     enabled: false,
     selected_user_ids: [],
     next_index: 0,
   });
-  if (insertError && !String(insertError.message).includes('duplicate')) {
+  if (insertError && !String(insertError.message).toLowerCase().includes('duplicate')) {
     throw new Error(insertError.message);
   }
 }
 
 /**
- * Persist enabled + assignment order. Does not reset round-robin `next_index` (same as before).
+ * Save enabled + user order for this project only. Does not reset `next_index`.
  */
-export async function persistLeadRotationConfig(config: LeadRotationConfig): Promise<void> {
+export async function persistLeadRotationConfig(
+  projectKey: string,
+  config: LeadRotationConfig
+): Promise<void> {
+  const key = normalizeProjectKey(projectKey);
   if (useDemoLeads()) {
-    writeLocalConfig(config);
+    writeLocalRow(key, { enabled: config.enabled, selectedUserIds: config.selectedUserIds });
     return;
   }
 
   try {
-    await ensureSupabaseRotationRow();
+    await ensureSupabaseProjectRow(key);
     const { error } = await supabase
-      .from('crm_lead_rotation_config')
+      .from(TABLE)
       .update({
         enabled: config.enabled,
         selected_user_ids: config.selectedUserIds,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', ROTATION_ROW_ID);
+      .eq('project_key', key);
     if (error) throw error;
   } catch (e) {
     if (e && typeof e === 'object' && 'message' in e && isMissingRotationTableError(e as { message?: string; code?: string })) {
       console.warn('[CRM] Saving rotation to localStorage (Supabase table missing).');
-      writeLocalConfig(config);
+      writeLocalRow(key, { enabled: config.enabled, selectedUserIds: config.selectedUserIds });
       return;
     }
     throw e;
   }
 }
 
-/**
- * Current round-robin pointer (who is next), without advancing it.
- */
-export async function peekLeadRotationNextIndex(): Promise<number> {
-  if (useDemoLeads()) return readLocalNextIndex();
+/** Round-robin pointer for this project (no advance). */
+export async function peekLeadRotationNextIndex(projectKey: string): Promise<number> {
+  const key = normalizeProjectKey(projectKey);
+  if (useDemoLeads()) return readLocalRow(key).nextIndex;
 
   const { data, error } = await supabase
-    .from('crm_lead_rotation_config')
+    .from(TABLE)
     .select('next_index')
-    .eq('id', ROTATION_ROW_ID)
+    .eq('project_key', key)
     .maybeSingle();
 
   if (error) {
-    if (isMissingRotationTableError(error)) return readLocalNextIndex();
+    if (isMissingRotationTableError(error)) return readLocalRow(key).nextIndex;
     throw new Error(error.message);
   }
   if (!data) return 0;
@@ -173,27 +197,29 @@ export async function peekLeadRotationNextIndex(): Promise<number> {
 }
 
 /**
- * Returns the next assignee id and advances the shared round-robin index (Supabase or localStorage).
+ * Next assignee for this project’s queue; advances that project’s `next_index` only.
  */
-export async function takeNextRoundRobinAssigneeId(): Promise<string> {
+export async function takeNextRoundRobinAssigneeId(projectKey: string): Promise<string> {
+  const key = normalizeProjectKey(projectKey);
+
   if (useDemoLeads()) {
-    const cfg = readLocalConfig();
-    if (!cfg.enabled) return '';
-    const userIds = cfg.selectedUserIds;
+    const row = readLocalRow(key);
+    if (!row.enabled) return '';
+    const userIds = row.selectedUserIds;
     if (userIds.length === 0) return '';
 
-    const currentIndex = readLocalNextIndex() % userIds.length;
+    const currentIndex = row.nextIndex % userIds.length;
     const selectedId = userIds[currentIndex];
-    writeLocalNextIndex((currentIndex + 1) % userIds.length);
+    writeLocalRow(key, { nextIndex: (currentIndex + 1) % userIds.length });
     return selectedId;
   }
 
   try {
-    await ensureSupabaseRotationRow();
+    await ensureSupabaseProjectRow(key);
     const { data, error } = await supabase
-      .from('crm_lead_rotation_config')
+      .from(TABLE)
       .select('enabled, selected_user_ids, next_index')
-      .eq('id', ROTATION_ROW_ID)
+      .eq('project_key', key)
       .single();
 
     if (error) throw error;
@@ -209,25 +235,25 @@ export async function takeNextRoundRobinAssigneeId(): Promise<string> {
     const newIndex = (currentIndex + 1) % userIds.length;
 
     const { error: upErr } = await supabase
-      .from('crm_lead_rotation_config')
+      .from(TABLE)
       .update({
         next_index: newIndex,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', ROTATION_ROW_ID);
+      .eq('project_key', key);
     if (upErr) throw upErr;
 
     return selectedId;
   } catch (e) {
     if (e && typeof e === 'object' && 'message' in e && isMissingRotationTableError(e as { message?: string; code?: string })) {
       console.warn('[CRM] takeNextRoundRobinAssigneeId falling back to localStorage.');
-      const cfg = readLocalConfig();
-      if (!cfg.enabled) return '';
-      const userIds = cfg.selectedUserIds;
+      const row = readLocalRow(key);
+      if (!row.enabled) return '';
+      const userIds = row.selectedUserIds;
       if (userIds.length === 0) return '';
-      const currentIndex = readLocalNextIndex() % userIds.length;
+      const currentIndex = row.nextIndex % userIds.length;
       const selectedId = userIds[currentIndex];
-      writeLocalNextIndex((currentIndex + 1) % userIds.length);
+      writeLocalRow(key, { nextIndex: (currentIndex + 1) % userIds.length });
       return selectedId;
     }
     throw e;

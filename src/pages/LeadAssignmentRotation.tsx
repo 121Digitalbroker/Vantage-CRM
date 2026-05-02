@@ -8,10 +8,10 @@ import { useRole } from '@/src/contexts/RoleContext';
 import type { Lead } from '@/types';
 import { assignLead, fetchLeads } from '@/src/services/leadsService';
 import {
-  getLeadRotationConfig,
-  getNextRoundRobinAssigneeId,
-  getLeadRotationNextIndex,
-  saveLeadRotationConfig,
+  loadLeadRotationConfig,
+  peekLeadRotationNextIndex,
+  persistLeadRotationConfig,
+  takeNextRoundRobinAssigneeId,
 } from '@/src/services/leadRotationService';
 import { sendTestEmail } from '@/src/services/testEmailService';
 
@@ -19,6 +19,9 @@ export default function LeadAssignmentRotation() {
   const { allUsers, currentUser } = useRole();
   const [enabled, setEnabled] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [nextRoundRobinIndex, setNextRoundRobinIndex] = useState(0);
+  const [rotationLoading, setRotationLoading] = useState(true);
+  const [rotationSaving, setRotationSaving] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [nowMs, setNowMs] = useState(Date.now());
   const [testEmailTo, setTestEmailTo] = useState('');
@@ -41,9 +44,25 @@ export default function LeadAssignmentRotation() {
   }, [assignableUsers, selectedUserIds]);
 
   useEffect(() => {
-    const config = getLeadRotationConfig();
-    setEnabled(config.enabled);
-    setSelectedUserIds(config.selectedUserIds);
+    let cancelled = false;
+    (async () => {
+      setRotationLoading(true);
+      try {
+        const config = await loadLeadRotationConfig();
+        const peek = await peekLeadRotationNextIndex();
+        if (cancelled) return;
+        setEnabled(config.enabled);
+        setSelectedUserIds(config.selectedUserIds);
+        setNextRoundRobinIndex(peek);
+      } catch {
+        if (!cancelled) toast.error('Could not load rotation settings');
+      } finally {
+        if (!cancelled) setRotationLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -89,12 +108,17 @@ export default function LeadAssignmentRotation() {
     });
   };
 
-  const handleSave = () => {
-    saveLeadRotationConfig({
-      enabled,
-      selectedUserIds,
-    });
-    toast.success('Lead rotation settings saved');
+  const handleSave = async () => {
+    setRotationSaving(true);
+    try {
+      await persistLeadRotationConfig({ enabled, selectedUserIds });
+      setNextRoundRobinIndex(await peekLeadRotationNextIndex());
+      toast.success('Lead rotation saved — visible on all devices using the same database');
+    } catch {
+      toast.error('Failed to save rotation settings');
+    } finally {
+      setRotationSaving(false);
+    }
   };
 
   const rotateUnassignedLeadsNow = async () => {
@@ -120,7 +144,7 @@ export default function LeadAssignmentRotation() {
 
       let assignedCount = 0;
       for (const lead of unassigned) {
-        const nextAssigneeId = getNextRoundRobinAssigneeId();
+        const nextAssigneeId = await takeNextRoundRobinAssigneeId();
         if (!nextAssigneeId) continue;
         await assignLead(lead.id, nextAssigneeId, currentUser?.name || 'System');
         assignedCount += 1;
@@ -128,6 +152,7 @@ export default function LeadAssignmentRotation() {
 
       const refreshed = await fetchLeads();
       setLeads(refreshed);
+      setNextRoundRobinIndex(await peekLeadRotationNextIndex());
       if (assignedCount > 0) {
         toast.success(`${assignedCount} unassigned lead(s) rotated successfully`);
       } else {
@@ -139,7 +164,7 @@ export default function LeadAssignmentRotation() {
   };
 
   const nextIndex = selectedUsers.length > 0
-    ? getLeadRotationNextIndex() % selectedUsers.length
+    ? nextRoundRobinIndex % selectedUsers.length
     : 0;
   const nextUser = selectedUsers[nextIndex] ?? null;
 
@@ -192,10 +217,16 @@ export default function LeadAssignmentRotation() {
         <CardHeader>
           <CardTitle className="text-base">Rotation Controls</CardTitle>
           <CardDescription>
-            Turn this on to distribute incoming leads one-by-one to selected users.
+            Turn this on to distribute incoming leads one-by-one to selected users. With production
+            Supabase (<code className="text-[11px] bg-slate-100 px-1 rounded">VITE_USE_DEMO_LEADS=false</code>
+            ), settings are stored in the database so every device sees the same order after you click
+            Save. Run <code className="text-[11px] bg-slate-100 px-1 rounded">supabase-crm-lead-rotation-config.sql</code> once if saves fail.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {rotationLoading && (
+            <p className="text-xs text-slate-500">Loading rotation settings…</p>
+          )}
           <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3">
             <div>
               <p className="text-sm font-medium text-slate-900">Enable round-robin assignment</p>
@@ -297,9 +328,13 @@ export default function LeadAssignmentRotation() {
           </div>
 
           <div className="flex justify-end">
-            <Button className="bg-blue-500 hover:bg-blue-600 text-white" onClick={handleSave}>
+            <Button
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+              disabled={rotationLoading || rotationSaving}
+              onClick={() => void handleSave()}
+            >
               <Save className="w-4 h-4 mr-2" />
-              Save Rotation
+              {rotationSaving ? 'Saving…' : 'Save Rotation'}
             </Button>
           </div>
         </CardContent>
@@ -396,6 +431,7 @@ export default function LeadAssignmentRotation() {
               type="button"
               variant="outline"
               className="border-slate-200"
+              disabled={rotationLoading}
               onClick={() => { void rotateUnassignedLeadsNow(); }}
             >
               Rotate Unassigned Leads Now

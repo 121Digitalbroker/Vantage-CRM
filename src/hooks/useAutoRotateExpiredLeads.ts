@@ -13,8 +13,8 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { fetchLeads, assignLead, isAssignmentExpired } from '@/src/services/leadsService';
 import {
-  getLeadRotationConfig,
-  getNextRoundRobinAssigneeId,
+  loadLeadRotationConfig,
+  takeNextRoundRobinAssigneeId,
 } from '@/src/services/leadRotationService';
 import { useRole } from '@/src/contexts/RoleContext';
 import type { AppUser } from '@/src/contexts/RoleContext';
@@ -32,7 +32,12 @@ export function useAutoRotateExpiredLeads() {
     if (!isAdmin) return;
 
     const run = async () => {
-      const config = getLeadRotationConfig();
+      let config: Awaited<ReturnType<typeof loadLeadRotationConfig>>;
+      try {
+        config = await loadLeadRotationConfig();
+      } catch {
+        return;
+      }
       if (!config.enabled || config.selectedUserIds.length === 0) return;
 
       let leads: ReturnType<typeof fetchLeads> extends Promise<infer T> ? T : never;
@@ -52,7 +57,7 @@ export function useAutoRotateExpiredLeads() {
       let reassignedCount = 0;
 
       for (const lead of expired) {
-        const nextId = getNextRoundRobinAssigneeId();
+        const nextId = await takeNextRoundRobinAssigneeId();
         if (!nextId) continue;
 
         try {

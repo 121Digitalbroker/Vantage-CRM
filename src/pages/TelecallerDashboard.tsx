@@ -228,6 +228,17 @@ export default function TelecallerDashboard() {
     }
   };
 
+  const handleLevelChange = async (leadId: string, level: LeadLevel) => {
+    setLeads(prev => prev.map(l => (l.id === leadId ? { ...l, leadLevel: level } : l)));
+    try {
+      await updateLead(leadId, { leadLevel: level });
+      toast.success(`Lead level set to ${level}`);
+    } catch {
+      toast.error('Failed to update level');
+      loadLeads();
+    }
+  };
+
   const openNoteDialog = (lead: Lead) => { setTargetLead(lead); setNoteText(''); setNoteOpen(true); };
   const openFuDialog = (lead: Lead) => {
     setTargetLead(lead);
@@ -545,12 +556,32 @@ export default function TelecallerDashboard() {
                           {lead.phoneNumber}
                         </a>
                       </div>
-                      <Badge
-                        variant="secondary"
-                        className={`text-[0.6rem] font-bold uppercase px-1.5 border rounded-full shrink-0 shadow-none ${getLevelColors(lead.leadLevel)}`}
-                      >
-                        {lead.leadLevel}
-                      </Badge>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger className="inline-flex border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full shrink-0 cursor-pointer">
+                          <Badge
+                            variant="secondary"
+                            className={`text-[0.6rem] font-bold uppercase px-1.5 border rounded-full shrink-0 shadow-none hover:opacity-90 ${getLevelColors(lead.leadLevel)}`}
+                          >
+                            {lead.leadLevel}
+                          </Badge>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[110px]">
+                          <DropdownMenuLabel className="text-xs text-slate-500">Set level</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {LEAD_LEVELS.map(lvl => (
+                            <DropdownMenuItem
+                              key={lvl}
+                              className={`text-xs cursor-pointer ${lead.leadLevel === lvl ? 'font-semibold' : ''}`}
+                              onClick={() => handleLevelChange(lead.id, lvl)}
+                            >
+                              <span
+                                className={`inline-block w-2 h-2 rounded-full mr-2 ${lvl === 'Hot' ? 'bg-red-500' : lvl === 'Warm' ? 'bg-amber-500' : 'bg-blue-400'}`}
+                              />
+                              {lvl}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
 
                     <div className="mt-2 flex items-center gap-1.5">
@@ -674,12 +705,32 @@ export default function TelecallerDashboard() {
                       </TableCell>
 
                       <TableCell className="px-4 py-3">
-                        <Badge
-                          variant="secondary"
-                          className={`rounded-full text-[0.65rem] font-bold uppercase px-2 py-0.5 border shadow-none ${getLevelColors(lead.leadLevel)}`}
-                        >
-                          {lead.leadLevel}
-                        </Badge>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger className="inline-flex border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full cursor-pointer">
+                            <Badge
+                              variant="secondary"
+                              className={`rounded-full text-[0.65rem] font-bold uppercase px-2 py-0.5 border shadow-none hover:opacity-90 ${getLevelColors(lead.leadLevel)}`}
+                            >
+                              {lead.leadLevel}
+                            </Badge>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-[110px]">
+                            <DropdownMenuLabel className="text-xs text-slate-500">Set level</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {LEAD_LEVELS.map(lvl => (
+                              <DropdownMenuItem
+                                key={lvl}
+                                className={`text-xs cursor-pointer ${lead.leadLevel === lvl ? 'font-semibold' : ''}`}
+                                onClick={() => handleLevelChange(lead.id, lvl)}
+                              >
+                                <span
+                                  className={`inline-block w-2 h-2 rounded-full mr-2 ${lvl === 'Hot' ? 'bg-red-500' : lvl === 'Warm' ? 'bg-amber-500' : 'bg-blue-400'}`}
+                                />
+                                {lvl}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
 
                       <TableCell className="px-4 py-3">

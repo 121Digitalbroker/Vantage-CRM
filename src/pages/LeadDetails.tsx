@@ -72,6 +72,8 @@ export default function LeadDetails() {
   const [fuForm, setFuForm] = useState({ type: 'Call', date: '', notes: '' });
   const [showFuForm, setShowFuForm] = useState(false);
   const [savingFu, setSavingFu] = useState(false);
+  /** Right-panel tab: assignment history lives here, not under Status History. */
+  const [leadDetailTab, setLeadDetailTab] = useState('activity');
 
   const getUserName = (userId: string) => {
     if (!userId?.trim()) return 'Unassigned';
@@ -104,6 +106,9 @@ export default function LeadDetails() {
   };
 
   useEffect(() => { loadData(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setLeadDetailTab('activity');
+  }, [id]);
 
   const handleAddNote = async () => {
     if (!id || !noteText.trim()) return;
@@ -357,6 +362,34 @@ export default function LeadDetails() {
               <div>
                 <p className="text-xs text-slate-500">Assigned To</p>
                 <p className="text-sm font-semibold text-slate-900">{getUserName(lead.assignedUserId)}</p>
+                {assignmentHistory.length > 0 && (
+                  <div className="mt-2 rounded-md border border-slate-100 bg-slate-50/80 px-2.5 py-2">
+                    <p className="text-[0.65rem] font-medium uppercase tracking-wide text-slate-500">
+                      Latest reassignment
+                    </p>
+                    <p className="text-xs text-slate-800 mt-0.5">
+                      <span className="font-medium">{getUserName(assignmentHistory[0].fromUserId)}</span>
+                      <span className="text-slate-400 mx-1">→</span>
+                      <span className="font-medium text-blue-700">{getUserName(assignmentHistory[0].toUserId)}</span>
+                    </p>
+                    <p className="text-[0.65rem] text-slate-400 mt-0.5">
+                      {(() => {
+                        try {
+                          return format(parseISO(assignmentHistory[0].createdAt), 'MMM d, yyyy h:mm a');
+                        } catch {
+                          return '';
+                        }
+                      })()}
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                      onClick={() => setLeadDetailTab('history')}
+                    >
+                      Open full assignment history ({assignmentHistory.length})
+                    </button>
+                  </div>
+                )}
               </div>
               <Separator className="bg-slate-200" />
               <div>
@@ -382,13 +415,17 @@ export default function LeadDetails() {
         {/* ── Right: Tabs ─────────────────────────────────────────────────── */}
         <div className="md:col-span-2">
           <Card className="h-full bg-white border-slate-200 shadow-sm rounded-xl">
-            <Tabs defaultValue="activity" className="h-full flex flex-col">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <TabsList className="bg-slate-100/50">
-                  <TabsTrigger value="activity">Notes & Activity</TabsTrigger>
-                  <TabsTrigger value="followups">Follow-ups ({followUps.length})</TabsTrigger>
-                  <TabsTrigger value="status">Status History ({statusHistory.length})</TabsTrigger>
-                  <TabsTrigger value="history">Assignment History ({assignmentHistory.length})</TabsTrigger>
+            <Tabs
+              value={leadDetailTab}
+              onValueChange={(v) => setLeadDetailTab(String(v))}
+              className="h-full flex flex-col"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 overflow-x-auto">
+                <TabsList className="bg-slate-100/50 inline-flex min-w-min max-w-full flex-nowrap">
+                  <TabsTrigger value="activity" className="shrink-0">Notes & Activity</TabsTrigger>
+                  <TabsTrigger value="followups" className="shrink-0">Follow-ups ({followUps.length})</TabsTrigger>
+                  <TabsTrigger value="status" className="shrink-0">Status History ({statusHistory.length})</TabsTrigger>
+                  <TabsTrigger value="history" className="shrink-0">Assignment History ({assignmentHistory.length})</TabsTrigger>
                 </TabsList>
               </div>
               
@@ -542,7 +579,20 @@ export default function LeadDetails() {
               <TabsContent value="status" className="p-6 m-0">
                 <h3 className="font-semibold text-slate-900 mb-4">Status Change History</h3>
                 {statusHistory.length === 0 ? (
-                  <p className="text-center text-sm text-slate-400 py-8">No status updates yet.</p>
+                  <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
+                    <p className="text-sm text-slate-500">No pipeline status changes recorded yet (e.g. New → Busy).</p>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Who the lead is <span className="font-medium text-slate-500">assigned to</span> is tracked separately — open the{' '}
+                      <button
+                        type="button"
+                        className="font-medium text-blue-600 hover:underline"
+                        onClick={() => setLeadDetailTab('history')}
+                      >
+                        Assignment History
+                      </button>{' '}
+                      tab. Older activity from before server-side history was enabled may not appear.
+                    </p>
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {statusHistory.map((record, idx) => (
@@ -582,7 +632,13 @@ export default function LeadDetails() {
               <TabsContent value="history" className="p-6 m-0">
                 <h3 className="font-semibold text-slate-900 mb-4">Assignment History</h3>
                 {assignmentHistory.length === 0 ? (
-                  <p className="text-center text-sm text-slate-400 py-8">No assignment history yet.</p>
+                  <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
+                    <p className="text-sm text-slate-500">Assignment history is this tab — nothing stored yet for this lead.</p>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Each reassignment from <span className="font-medium text-slate-500">Leads</span> or{' '}
+                      <span className="font-medium text-slate-500">Lead Rotation</span> adds a row here. Reassign once to verify; moves made before the database history tables existed are not shown.
+                    </p>
+                  </div>
                 ) : (
                   <div className="space-y-3">
                     {assignmentHistory.map((record, idx) => (

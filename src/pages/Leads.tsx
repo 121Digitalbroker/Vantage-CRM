@@ -1170,7 +1170,7 @@ export default function Leads() {
                       <TableCell className="px-4 py-3">
                         <DropdownMenu>
                           <DropdownMenuTrigger className="inline-flex border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full cursor-pointer">
-                            <Badge variant="secondary" className={`rounded-full text-[0.65rem] font-bold uppercase px-2 py-0.5 border hover:opacity-80 transition-opacity shadow-none pointer-events-none ${getLevelColors(lead.leadLevel)}`}>
+                            <Badge variant="secondary" className={`rounded-full text-[0.65rem] font-bold uppercase px-2 py-0.5 border hover:opacity-80 transition-opacity shadow-none ${getLevelColors(lead.leadLevel)}`}>
                         {lead.leadLevel}
                       </Badge>
                           </DropdownMenuTrigger>

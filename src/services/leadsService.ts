@@ -72,6 +72,19 @@ export function useDemoLeads(): boolean {
   return v !== 'false' && v !== '0';
 }
 
+/** PostgREST when `lead_*_history` tables are not migrated yet (404 / schema cache). */
+function isMissingHistoryTableError(error: { message?: string; code?: string; details?: string }): boolean {
+  const code = String(error?.code ?? '');
+  const blob = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
+  return (
+    code === 'PGRST205'
+    || code === '42P01'
+    || blob.includes('schema cache')
+    || blob.includes('could not find the table')
+    || (blob.includes('relation') && blob.includes('does not exist'))
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapToLead(row: Record<string, any>): Lead {
   const rawStatus = normalizeLeadStatus(String(row.status ?? ''));
@@ -214,8 +227,36 @@ export async function updateLeadWithAudit(
   return updated;
 }
 
+function mapAssignmentHistoryRow(row: Record<string, unknown>): AssignmentHistory {
+  return {
+    id: String(row.id ?? ''),
+    leadId: String(row.lead_id ?? ''),
+    fromUserId: String(row.from_user_id ?? ''),
+    toUserId: String(row.to_user_id ?? ''),
+    assignedBy: String(row.assigned_by ?? ''),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    reason: row.reason != null && row.reason !== '' ? String(row.reason) : undefined,
+  };
+}
+
+function mapStatusHistoryRow(row: Record<string, unknown>): StatusHistory {
+  return {
+    id: String(row.id ?? ''),
+    leadId: String(row.lead_id ?? ''),
+    fromStatus: normalizeLeadStatus(String(row.from_status ?? '')),
+    toStatus: normalizeLeadStatus(String(row.to_status ?? '')),
+    updatedBy: String(row.updated_by ?? ''),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
 /** Assign a lead to a telecaller, or clear assignment when `userId` is empty. */
-export async function assignLead(leadId: string, userId: string, assignedBy: string = 'system'): Promise<void> {
+export async function assignLead(
+  leadId: string,
+  userId: string,
+  assignedBy: string = 'system',
+  assignmentReason?: string
+): Promise<void> {
   const currentLead = await fetchLead(leadId);
   const previousUserId = currentLead?.assignedUserId || '';
   const isUnassign = !userId?.trim();
@@ -265,7 +306,7 @@ export async function assignLead(leadId: string, userId: string, assignedBy: str
   }
 
   if (previousUserId !== nextUserId) {
-    await logAssignment(leadId, previousUserId, nextUserId, assignedBy);
+    await logAssignment(leadId, previousUserId, nextUserId, assignedBy, assignmentReason);
   }
 
   if (currentLead && !isUnassign) {
@@ -447,7 +488,24 @@ export async function completeFollowUp(followUpId: string, leadId: string): Prom
 
 // ── Assignment History ────────────────────────────────────────────────────────
 export async function getAssignmentHistory(leadId: string): Promise<AssignmentHistory[]> {
-  return demoGetAssignmentHistory(leadId);
+  if (useDemoLeads()) return demoGetAssignmentHistory(leadId);
+
+  const { data, error } = await supabase
+    .from('lead_assignment_history')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    if (isMissingHistoryTableError(error)) {
+      console.warn(
+        '[CRM] lead_assignment_history missing; run supabase-lead-assignment-history.sql. History reads return [].',
+        error.message
+      );
+      return [];
+    }
+    throw new Error(error.message);
+  }
+  return (data ?? []).map((row) => mapAssignmentHistoryRow(row as Record<string, unknown>));
 }
 
 export async function logAssignment(
@@ -457,11 +515,59 @@ export async function logAssignment(
   assignedBy: string,
   reason?: string
 ): Promise<AssignmentHistory> {
-  return demoLogAssignment(leadId, fromUserId, toUserId, assignedBy, reason);
+  if (useDemoLeads()) return demoLogAssignment(leadId, fromUserId, toUserId, assignedBy, reason);
+
+  const { data, error } = await supabase
+    .from('lead_assignment_history')
+    .insert({
+      lead_id: leadId,
+      from_user_id: fromUserId,
+      to_user_id: toUserId,
+      assigned_by: assignedBy,
+      reason: reason?.trim() || null,
+    })
+    .select()
+    .single();
+  if (error) {
+    if (isMissingHistoryTableError(error)) {
+      console.warn(
+        '[CRM] lead_assignment_history missing; assignment saved on lead but history not logged. Run supabase-lead-assignment-history.sql.',
+        error.message
+      );
+      return {
+        id: 'no-table',
+        leadId,
+        fromUserId,
+        toUserId,
+        assignedBy,
+        createdAt: new Date().toISOString(),
+        reason,
+      };
+    }
+    throw new Error(error.message);
+  }
+  return mapAssignmentHistoryRow(data as Record<string, unknown>);
 }
 
 export async function getStatusHistory(leadId: string): Promise<StatusHistory[]> {
-  return demoGetStatusHistory(leadId);
+  if (useDemoLeads()) return demoGetStatusHistory(leadId);
+
+  const { data, error } = await supabase
+    .from('lead_status_history')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    if (isMissingHistoryTableError(error)) {
+      console.warn(
+        '[CRM] lead_status_history missing; run supabase-lead-status-history.sql. History reads return [].',
+        error.message
+      );
+      return [];
+    }
+    throw new Error(error.message);
+  }
+  return (data ?? []).map((row) => mapStatusHistoryRow(row as Record<string, unknown>));
 }
 
 export async function logStatusChange(
@@ -470,7 +576,36 @@ export async function logStatusChange(
   toStatus: LeadStatus,
   updatedBy: string
 ): Promise<StatusHistory> {
-  return demoLogStatusChange(leadId, fromStatus, toStatus, updatedBy);
+  if (useDemoLeads()) return demoLogStatusChange(leadId, fromStatus, toStatus, updatedBy);
+
+  const { data, error } = await supabase
+    .from('lead_status_history')
+    .insert({
+      lead_id: leadId,
+      from_status: fromStatus,
+      to_status: toStatus,
+      updated_by: updatedBy,
+    })
+    .select()
+    .single();
+  if (error) {
+    if (isMissingHistoryTableError(error)) {
+      console.warn(
+        '[CRM] lead_status_history missing; status saved on lead but history not logged. Run supabase-lead-status-history.sql.',
+        error.message
+      );
+      return {
+        id: 'no-table',
+        leadId,
+        fromStatus,
+        toStatus,
+        updatedBy,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    throw new Error(error.message);
+  }
+  return mapStatusHistoryRow(data as Record<string, unknown>);
 }
 
 // ── Assignment Timer Functions ───────────────────────────────────────────────
@@ -519,10 +654,8 @@ export async function autoReassignExpiredLead(
   // Find telecaller with least leads or pick next in rotation
   const nextTelecaller = availableTelecallers[0]; // Simple: pick first available
   
-  await assignLead(lead.id, nextTelecaller.id, adminName);
-  await logAssignment(
+  await assignLead(
     lead.id,
-    lead.assignedUserId,
     nextTelecaller.id,
     adminName,
     'Auto-reassigned due to expired assignment (1 hour)'

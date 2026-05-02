@@ -409,7 +409,7 @@ export default function Leads() {
           : new Date(formData.followUpDate).toISOString(),
         investmentBudget: formData.investmentBudget,
       };
-      const updated = await updateLead(targetLead.id, updates);
+      const updated = await updateLeadWithAudit(targetLead.id, updates, currentUser.name);
       patchLocal(targetLead.id, updated);
       if (DUMP_STATUSES.has(formData.status)) {
         scheduleDumpGrace(targetLead.id);

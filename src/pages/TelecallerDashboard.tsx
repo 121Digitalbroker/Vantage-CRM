@@ -347,7 +347,7 @@ export default function TelecallerDashboard() {
           ? farFutureFollowUpIso()
           : new Date(formData.followUpDate).toISOString(),
       };
-      const updated = await updateLead(targetLead.id, updates);
+      const updated = await updateLeadWithAudit(targetLead.id, updates, currentUser.name);
       setLeads(prev => prev.map(l => l.id === targetLead.id ? updated : l));
       if (isClosedPipelineStatus(formData.status)) {
         scheduleDumpGrace(targetLead.id);

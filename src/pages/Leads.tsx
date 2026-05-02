@@ -1,11 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { format, isPast, isToday, parseISO, formatDistanceToNow } from 'date-fns';
+import { format, isPast, isToday, parseISO, formatDistanceToNow, parse, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import {
   FileDown, FileUp, Filter, MoreHorizontal, Plus, Search,
   ArrowUpDown, ArrowUp, ArrowDown, Eye, Edit, UserPlus,
-  Trash2, MessageSquarePlus, CalendarPlus, ChevronDown, Phone, RefreshCw, AlertCircle,
+  Trash2, MessageSquarePlus, CalendarPlus, CalendarRange, ChevronDown, Phone, RefreshCw, AlertCircle,
   LayoutList, Kanban,
 } from 'lucide-react';
 import PipelineView from '@/src/components/PipelineView';
@@ -40,7 +40,8 @@ const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
 const PROJECTS = ['Sunset Villas', 'Downtown Heights', 'Oceanside Apartments', 'Green Meadows', 'Skyline Towers', 'Lakeview Residency'];
 const INVESTMENT_BUDGETS: InvestmentBudget[] = ['Below ₹50L', '₹50L - ₹1Cr', 'Above ₹1Cr', 'Not Specified'];
-const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget']);
+/** Junk / invalid — "Dump" bucket + grace hide on Active list. Not Interested is tracked only as that status. */
+const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
 /** After marking dump, row stays in "Active" list this long before disappearing */
 const DUMP_HIDE_GRACE_MS = 10_000;
 
@@ -145,7 +146,11 @@ const blankLeadForm = () => ({
 export default function Leads() {
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams();
-  const { currentUser, telecallers, allUsers, isAdmin, isTelecaller } = useRole();
+  const { currentUser, telecallers, allUsers, isAdmin, isManager, isDigitalMarketer } = useRole();
+  /** Full org directory (every lead). Telecallers + managers only see rows assigned to them. */
+  const seesFullLeadDirectory = isAdmin || isDigitalMarketer;
+  /** Admin + GM + Manager1: assignment column + reassign (managers only see their own rows but may hand off to team). */
+  const canSeeLeadAssignments = isAdmin || isManager;
 
   const [leads,        setLeads]       = useState<Lead[]>([]);
   const [loading,      setLoading]     = useState(true);
@@ -157,6 +162,10 @@ export default function Leads() {
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>('Active');
   /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
   const [dumpGraceUntil, setDumpGraceUntil] = useState<Record<string, number>>({});
+  /** Date range filter: which timestamp to compare (local calendar day) */
+  const [dateFilterField, setDateFilterField] = useState<'none' | 'createdAt' | 'followUpDate'>('none');
+  const [dateFromStr, setDateFromStr] = useState('');
+  const [dateToStr, setDateToStr] = useState('');
   const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>('All');
   const [sortField,    setSortField]   = useState<SortField>('createdAt');
   const [sortDir,      setSortDir]     = useState<SortDir>('desc');
@@ -189,13 +198,14 @@ export default function Leads() {
     setLoading(true);
     setError(null);
     try {
-      if (isTelecaller) {
+      if (seesFullLeadDirectory) {
+        const data = await fetchLeads();
+        setLeads(data);
+      } else if (currentUser?.id) {
         const data = await fetchLeads(currentUser.id);
         setLeads(data);
       } else {
-        // Admin + General Manager (role stored as Manager): full lead list
-        const data = await fetchLeads();
-        setLeads(data);
+        setLeads([]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load leads');
@@ -204,7 +214,7 @@ export default function Leads() {
     }
   };
 
-  useEffect(() => { loadLeads(); }, [currentUser.id, isTelecaller]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadLeads(); }, [currentUser?.id, currentUser?.role, seesFullLeadDirectory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setSearchTerm(searchParams.get('q') ?? '');
@@ -279,7 +289,7 @@ export default function Leads() {
         clearDumpGrace(leadId);
       }
       const updates: Partial<Lead> = { status };
-      if (DUMP_STATUSES.has(status)) {
+      if (DUMP_STATUSES.has(status) || status === 'Not Interested') {
         updates.followUpDate = farFutureFollowUpIso();
       }
       const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);
@@ -351,6 +361,9 @@ export default function Leads() {
       setLevelFilter('All');
       setAssigneeFilter('All');
       setSearchTerm('');
+      setDateFilterField('none');
+      setDateFromStr('');
+      setDateToStr('');
       setAddOpen(false);
       toast.success(`Lead "${newLead.clientName}" created`);
     } catch {
@@ -404,9 +417,10 @@ export default function Leads() {
         assignedUserId: formData.assignedUserId,
         leadLevel: formData.leadLevel,
         status: formData.status,
-        followUpDate: DUMP_STATUSES.has(formData.status)
-          ? farFutureFollowUpIso()
-          : new Date(formData.followUpDate).toISOString(),
+        followUpDate:
+          DUMP_STATUSES.has(formData.status) || formData.status === 'Not Interested'
+            ? farFutureFollowUpIso()
+            : new Date(formData.followUpDate).toISOString(),
         investmentBudget: formData.investmentBudget,
       };
       const updated = await updateLeadWithAudit(targetLead.id, updates, currentUser.name);
@@ -611,7 +625,7 @@ export default function Leads() {
           facebookLeadId:     fbLeadId,
           // Defaults
           // Telecaller imports are auto-assigned to the importing telecaller.
-          assignedUserId: isTelecaller ? currentUser.id : '',
+          assignedUserId: seesFullLeadDirectory ? '' : currentUser.id,
           leadLevel:      'Warm'  as LeadLevel,
           status:         importedStatus,
           followUpDate:   followUpIso,
@@ -629,7 +643,7 @@ export default function Leads() {
 
       const parts: string[] = [];
       if (importedLeads.length > 0) parts.push(`✅ ${importedLeads.length} leads imported`);
-      if (isTelecaller && importedLeads.length > 0) parts.push('👤 Assigned to you automatically by CRM');
+      if (!seesFullLeadDirectory && importedLeads.length > 0) parts.push('👤 Assigned to you automatically by CRM');
       if (mergedDuplicates > 0)      parts.push(`🔁 ${mergedDuplicates} duplicate rows merged into existing leads`);
       if (notesAdded > 0)            parts.push(`📝 ${notesAdded} notes added from CSV`);
       if (skippedDuplicates > 0)    parts.push(`⚠️ ${skippedDuplicates} duplicates skipped`);
@@ -726,9 +740,28 @@ export default function Leads() {
         || (duplicateFilter === 'Phone' && isPhoneDuplicate)
         || (duplicateFilter === 'NameOrPhone' && (isNameDuplicate || isPhoneDuplicate));
 
-      return matchesSearch && matchesStatus && matchesLevel && matchesAssignee && matchesDuplicate && matchesDump;
+      let matchesDate = true;
+      if (dateFilterField !== 'none' && (dateFromStr || dateToStr)) {
+        const raw = dateFilterField === 'createdAt' ? lead.createdAt : lead.followUpDate;
+        let leadDay: Date | undefined;
+        try {
+          leadDay = startOfDay(parseISO(raw));
+        } catch {
+          matchesDate = false;
+        }
+        if (matchesDate && leadDay && dateFromStr) {
+          const from = startOfDay(parse(dateFromStr, 'yyyy-MM-dd', new Date()));
+          if (leadDay < from) matchesDate = false;
+        }
+        if (matchesDate && leadDay && dateToStr) {
+          const to = endOfDay(parse(dateToStr, 'yyyy-MM-dd', new Date()));
+          if (leadDay > to) matchesDate = false;
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesLevel && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil]);
+  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -750,7 +783,10 @@ export default function Leads() {
     assigneeFilter !== 'All' ||
     dumpFilter !== 'Active' ||
     duplicateFilter !== 'All' ||
-    searchTerm;
+    searchTerm ||
+    dateFilterField !== 'none' ||
+    !!dateFromStr ||
+    !!dateToStr;
 
   // ── Shared Lead form fields ──────────────────────────────────────────────
   const LeadFormFields = () => (
@@ -836,9 +872,9 @@ export default function Leads() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Leads Management</h1>
           <p className="text-sm text-slate-500 mt-1">
             View, filter, and manage all real estate leads.
-            {isTelecaller && (
+            {!seesFullLeadDirectory && (
               <span className="ml-2 text-xs font-medium text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                Showing your assigned leads only
+                Showing leads assigned to you only
               </span>
             )}
           </p>
@@ -954,7 +990,7 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
-            {!isTelecaller && (
+            {seesFullLeadDirectory && (
               <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
                 <SelectTrigger className="h-8 text-xs w-[150px] border-slate-200 bg-slate-50">
                   <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
@@ -982,16 +1018,47 @@ export default function Leads() {
             </Select>
 
             <Select value={dumpFilter} onValueChange={(v) => setDumpFilter(v as 'Active' | 'Dump' | 'All')}>
-              <SelectTrigger className="h-8 text-xs w-[140px] border-slate-200 bg-slate-50">
+              <SelectTrigger className="h-8 text-xs w-[180px] border-slate-200 bg-slate-50">
                 <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
                 <SelectValue placeholder="Dump filter" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Active">Active Leads</SelectItem>
-                <SelectItem value="Dump">Dump Leads</SelectItem>
+                <SelectItem value="Active">Active (excl. disqualified dump)</SelectItem>
+                <SelectItem value="Dump">Disqualified / dump only</SelectItem>
                 <SelectItem value="All">All Leads</SelectItem>
               </SelectContent>
             </Select>
+
+            <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+              <CalendarRange className="w-3 h-3 text-slate-400 shrink-0" />
+              <Select value={dateFilterField} onValueChange={(v) => setDateFilterField(v as 'none' | 'createdAt' | 'followUpDate')}>
+                <SelectTrigger className="h-8 text-xs w-[140px] border-0 bg-transparent shadow-none focus:ring-0 px-1">
+                  <SelectValue placeholder="Date" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Any date</SelectItem>
+                  <SelectItem value="createdAt">Created date</SelectItem>
+                  <SelectItem value="followUpDate">Follow-up date</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="date"
+                disabled={dateFilterField === 'none'}
+                value={dateFromStr}
+                onChange={(e) => setDateFromStr(e.target.value)}
+                className="h-8 text-xs w-[132px] border-slate-200 bg-white px-1"
+                title="From"
+              />
+              <span className="text-[0.65rem] text-slate-400">to</span>
+              <Input
+                type="date"
+                disabled={dateFilterField === 'none'}
+                value={dateToStr}
+                onChange={(e) => setDateToStr(e.target.value)}
+                className="h-8 text-xs w-[132px] border-slate-200 bg-white px-1"
+                title="To"
+              />
+            </div>
 
             {anyFilter && (
               <Button
@@ -1004,6 +1071,9 @@ export default function Leads() {
                   setDumpFilter('Active');
                   setDuplicateFilter('All');
                   setSearchTerm('');
+                  setDateFilterField('none');
+                  setDateFromStr('');
+                  setDateToStr('');
                 }}
               >
                 Clear filters
@@ -1030,7 +1100,7 @@ export default function Leads() {
                 <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[130px]">Project</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[170px]">Campaign</TableHead>
                 <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[140px]">Investment Budget</TableHead>
-                {isAdmin && (
+                {canSeeLeadAssignments && (
                   <TableHead
                     className="font-semibold text-slate-500 px-4 py-3 min-w-[150px] cursor-pointer hover:text-blue-600 select-none"
                     onClick={() => toggleSort('assignedUserId')}
@@ -1071,7 +1141,7 @@ export default function Leads() {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <TableRow key={i} className="border-b border-slate-100">
-                    {[...Array(isAdmin ? 11 : 10)].map((_, j) => (
+                    {[...Array(canSeeLeadAssignments ? 11 : 10)].map((_, j) => (
                       <TableCell key={j} className="px-4 py-4">
                         <div className="h-4 bg-slate-100 animate-pulse rounded w-full" />
                       </TableCell>
@@ -1080,7 +1150,7 @@ export default function Leads() {
                 ))
               ) : sorted.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 11 : 10} className="h-32 text-center text-slate-400">
+                  <TableCell colSpan={canSeeLeadAssignments ? 11 : 10} className="h-32 text-center text-slate-400">
                     {error ? 'Failed to load leads.' : 'No leads match your filters.'}
                   </TableCell>
                 </TableRow>
@@ -1127,7 +1197,7 @@ export default function Leads() {
                         </span>
                     </TableCell>
 
-                      {isAdmin && (
+                      {canSeeLeadAssignments && (
                         <TableCell className="px-4 py-3">
                           <div className="flex flex-col gap-1">
                             <DropdownMenu>
@@ -1268,7 +1338,7 @@ export default function Leads() {
                             <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openEditDialog(lead)}>
                               <Edit className="w-3.5 h-3.5 mr-2 text-slate-500" />Edit Lead
                             </DropdownMenuItem>
-                            {isAdmin && (
+                            {canSeeLeadAssignments && (
                               <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openEditDialog(lead)}>
                                 <UserPlus className="w-3.5 h-3.5 mr-2 text-slate-500" />Assign Lead
                           </DropdownMenuItem>
@@ -1304,7 +1374,7 @@ export default function Leads() {
         <div className="flex items-center justify-between text-xs text-slate-500 px-4 py-3 border-t border-slate-200">
           <div>
             Showing {sorted.length} of {leads.length} leads
-            {isTelecaller && ' (your assigned leads)'}
+            {!seesFullLeadDirectory && ' (assigned to you)'}
           </div>
         </div>
       </div>}

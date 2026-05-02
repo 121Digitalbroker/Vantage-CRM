@@ -22,7 +22,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { Lead, LeadStatus } from '@/types';
 import { updateLeadWithAudit } from '@/src/services/leadsService';
 
-const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget']);
+/** Dump / disqualified only — Not Interested is a separate outcome (no dump grace on Leads). */
+const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
 
 function farFutureFollowUpIso(): string {
   return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
@@ -232,7 +233,7 @@ export default function PipelineView({ leads, onLeadsChange, onDumpStatusApplied
     // Persist to store/Supabase
     try {
       const updates: Partial<Lead> = { status: targetStage };
-      if (DUMP_STATUSES.has(targetStage)) {
+      if (DUMP_STATUSES.has(targetStage) || targetStage === 'Not Interested') {
         updates.followUpDate = farFutureFollowUpIso();
       }
       const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);

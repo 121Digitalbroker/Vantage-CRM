@@ -54,10 +54,12 @@ const LEAD_STATUSES: LeadStatus[] = [
   'Not Interested', 'Wrong Number', 'Low Budget',
 ];
 
-/** No longer need call reminders — hide from priority + overdue workload */
-const CLOSED_PIPELINE_STATUSES: LeadStatus[] = [
-  'Fake Query', 'Not Interested', 'Wrong Number', 'Low Budget',
-];
+/** Disqualified / junk — drop from workload after short grace (dump), not "Not Interested" */
+const DUMP_DISPOSAL_STATUSES: LeadStatus[] = ['Fake Query', 'Wrong Number', 'Low Budget'];
+
+function isDumpDisposalStatus(status: LeadStatus): boolean {
+  return DUMP_DISPOSAL_STATUSES.includes(status);
+}
 
 /** After marking closed/dump, row stays visible this long before disappearing from dashboard */
 const DUMP_HIDE_GRACE_MS = 10_000;
@@ -124,10 +126,6 @@ const getFollowUpPriority = (dateStr: string) => {
   }
 };
 
-function isClosedPipelineStatus(status: LeadStatus): boolean {
-  return CLOSED_PIPELINE_STATUSES.includes(status);
-}
-
 /** Placeholder / bad imports — keep off telecaller dashboard */
 function isJunkLead(lead: Lead): boolean {
   const n = String(lead.clientName ?? '').trim();
@@ -138,7 +136,8 @@ function isJunkLead(lead: Lead): boolean {
 /** Leads that should drive Today / Overdue / Priority on this page (grace keeps dump rows briefly after status change) */
 function includeInFollowUpWorkload(lead: Lead, graceUntilById: Record<string, number>): boolean {
   if (isJunkLead(lead)) return false;
-  if (!isClosedPipelineStatus(lead.status)) return true;
+  if (lead.status === 'Not Interested') return false;
+  if (!isDumpDisposalStatus(lead.status)) return true;
   const until = graceUntilById[lead.id];
   return until != null && Date.now() < until;
 }
@@ -210,16 +209,16 @@ export default function TelecallerDashboard() {
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
     try {
-      if (!isClosedPipelineStatus(status)) {
+      if (!isDumpDisposalStatus(status)) {
         clearDumpGrace(leadId);
       }
       const updates: Partial<Lead> = { status };
-      if (isClosedPipelineStatus(status)) {
+      if (isDumpDisposalStatus(status) || status === 'Not Interested') {
         updates.followUpDate = farFutureFollowUpIso();
       }
       const updated = await updateLeadWithAudit(leadId, updates, currentUser.name);
       setLeads(prev => prev.map(l => l.id === leadId ? updated : l));
-      if (isClosedPipelineStatus(status)) {
+      if (isDumpDisposalStatus(status)) {
         scheduleDumpGrace(leadId);
       }
       toast.success(`Status updated to "${status}"`);
@@ -338,7 +337,7 @@ export default function TelecallerDashboard() {
       toast.error('Client Name and Phone Number are required');
       return;
     }
-    if (!isClosedPipelineStatus(formData.status)) {
+    if (!isDumpDisposalStatus(formData.status)) {
       clearDumpGrace(targetLead.id);
     }
     setSaving(true);
@@ -354,13 +353,14 @@ export default function TelecallerDashboard() {
         adName: formData.adName.trim() || undefined,
         leadLevel: formData.leadLevel,
         status: formData.status,
-        followUpDate: isClosedPipelineStatus(formData.status)
-          ? farFutureFollowUpIso()
-          : new Date(formData.followUpDate).toISOString(),
+        followUpDate:
+          isDumpDisposalStatus(formData.status) || formData.status === 'Not Interested'
+            ? farFutureFollowUpIso()
+            : new Date(formData.followUpDate).toISOString(),
       };
       const updated = await updateLeadWithAudit(targetLead.id, updates, currentUser.name);
       setLeads(prev => prev.map(l => l.id === targetLead.id ? updated : l));
-      if (isClosedPipelineStatus(formData.status)) {
+      if (isDumpDisposalStatus(formData.status)) {
         scheduleDumpGrace(targetLead.id);
       }
       setEditOpen(false);

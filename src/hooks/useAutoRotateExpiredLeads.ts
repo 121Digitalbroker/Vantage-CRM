@@ -4,14 +4,14 @@
  * Runs in the background while the admin is logged in.
  * Every CHECK_INTERVAL_MS it:
  *   1. Fetches all leads
- *   2. Finds any with an expired assignment timer (no status update yet)
+ *   2. Finds any with an expired assignment timer, status still New (no pipeline change)
  *   3. For each, loads rotation config for that lead's **project**; if enabled,
  *      re-assigns to the next user in **that project's** queue
  *   4. Shows a toast so the admin knows what happened
  */
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { fetchLeads, assignLead, isAssignmentExpired } from '@/src/services/leadsService';
+import { fetchLeads, assignLead, shouldAutoRotateAfterAssignmentTimer } from '@/src/services/leadsService';
 import {
   loadLeadRotationConfig,
   normalizeProjectKey,
@@ -38,9 +38,7 @@ export function useAutoRotateExpiredLeads() {
         return;
       }
 
-      const expired = leads.filter(
-        (lead) => lead.assignedUserId?.trim() && isAssignmentExpired(lead),
-      );
+      const expired = leads.filter(shouldAutoRotateAfterAssignmentTimer);
 
       if (expired.length === 0) return;
 
@@ -66,7 +64,7 @@ export function useAutoRotateExpiredLeads() {
           const nextName = byId.get(nextId)?.name ?? nextId;
           const prevName = byId.get(lead.assignedUserId)?.name ?? lead.assignedUserId;
           toast.info(
-            `⏱ Timer expired: "${lead.clientName}" (${projectKey === '__default__' ? 'default project' : projectKey}) ${prevName} → ${nextName}`,
+            `⏱ Timer expired (still New): "${lead.clientName}" (${projectKey === '__default__' ? 'default project' : projectKey}) ${prevName} → ${nextName}`,
             { duration: 6000 },
           );
         } catch {

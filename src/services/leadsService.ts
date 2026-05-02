@@ -640,6 +640,24 @@ export function isAssignmentExpired(lead: Lead): boolean {
 }
 
 /**
+ * Lead is on the assignment countdown and pipeline is still New (no status change yet).
+ * Used for rotation UI and for deciding which leads can auto-rotate when the timer ends.
+ */
+export function isInNewStatusAssignmentRotationWindow(lead: Lead): boolean {
+  return !!(
+    lead.assignedUserId?.trim()
+    && !lead.lastStatusUpdate
+    && lead.assignmentExpiresAt
+    && lead.status === 'New'
+  );
+}
+
+/** Expired assignment timer and still New — eligible for round-robin handoff. */
+export function shouldAutoRotateAfterAssignmentTimer(lead: Lead): boolean {
+  return isInNewStatusAssignmentRotationWindow(lead) && isAssignmentExpired(lead);
+}
+
+/**
  * Get all leads with expired assignments
  */
 export async function getExpiredAssignments(): Promise<Lead[]> {

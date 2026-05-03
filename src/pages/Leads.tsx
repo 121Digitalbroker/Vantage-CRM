@@ -51,8 +51,10 @@ const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
 const PROJECTS = ['Sunset Villas', 'Downtown Heights', 'Oceanside Apartments', 'Green Meadows', 'Skyline Towers', 'Lakeview Residency'];
 const INVESTMENT_BUDGETS: InvestmentBudget[] = ['Below ₹50L', '₹50L - ₹1Cr', 'Above ₹1Cr', 'Not Specified'];
-/** Junk / invalid — "Dump" bucket + grace hide on Active list. Not Interested is tracked only as that status. */
+/** Junk / invalid — grace period on Active list after marking (short hide animation). */
 const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
+/** Disqualified / closed outcomes: Dump filter + hidden from Active (same for every role). Includes Not Interested. */
+const DUMP_VIEW_STATUSES = new Set<LeadStatus>([...DUMP_STATUSES, 'Not Interested']);
 /** After marking dump, row stays in "Active" list this long before disappearing */
 const DUMP_HIDE_GRACE_MS = 10_000;
 
@@ -744,17 +746,18 @@ export default function Leads() {
       const matchesLevel    = levelFilter    === 'All' || lead.leadLevel       === levelFilter;
       const matchesAssignee = assigneeFilter === 'All'
         || (assigneeFilter === '__unassigned__' ? !lead.assignedUserId : lead.assignedUserId === assigneeFilter);
-      const isDump = DUMP_STATUSES.has(lead.status);
+      const isDumpView = DUMP_VIEW_STATUSES.has(lead.status);
+      const isJunkDump = DUMP_STATUSES.has(lead.status);
       const inDumpGrace =
-        isDump &&
+        isJunkDump &&
         dumpGraceUntil[lead.id] != null &&
         Date.now() < dumpGraceUntil[lead.id];
       const matchesDump =
         dumpFilter === 'All'
           ? true
           : dumpFilter === 'Dump'
-            ? isDump
-            : !isDump || inDumpGrace;
+            ? isDumpView
+            : !isDumpView || inDumpGrace;
 
       const n = normalizeName(lead.clientName || '');
       const p = normalizePhone(lead.phoneNumber || '');
@@ -1056,8 +1059,8 @@ export default function Leads() {
                 <SelectValue placeholder="Dump filter" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Active">Active (excl. disqualified dump)</SelectItem>
-                <SelectItem value="Dump">Disqualified / dump only</SelectItem>
+                <SelectItem value="Active">Active (excl. dump & Not Interested)</SelectItem>
+                <SelectItem value="Dump">Dump: Fake / Wrong # / Low budget / Not Interested</SelectItem>
                 <SelectItem value="All">All Leads</SelectItem>
               </SelectContent>
             </Select>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   UserPlus, MoreHorizontal, Edit, Ban, CheckCircle,
   Users as UsersIcon, Phone, Key, Eye, EyeOff, Shield, Trash2, Copy,
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRole, UserRole, isManagerKindRole } from '@/src/contexts/RoleContext';
+import { ManagerTagsField } from '@/components/ManagerTagsField';
 import { format } from 'date-fns';
 
 const roleBadgeColors: Record<string, string> = {
@@ -43,10 +44,23 @@ export default function Users() {
   const { allUsers, addTelecaller, editUser, toggleUserStatus, resetPassword, removeUser } = useRole();
   const displayRole = (role: UserRole) => (role === 'Manager' ? 'General Manager' : role);
   const generalManagers = allUsers.filter(u => isManagerKindRole(u.role) && u.status === 'Active');
+  const assignableGeneralManagers = useMemo(
+    () => allUsers.filter(u => u.role === 'Manager' && u.status === 'Active'),
+    [allUsers],
+  );
 
   // ── Add user dialog ────────────────────────────────────────────────────────
   const [dialogOpen,   setDialogOpen]   = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', phone: '', role: 'Telecaller' as UserRole, position: '', managerId: '' });
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    phone: '',
+    role: 'Telecaller' as UserRole,
+    position: '',
+    managerIds: [] as string[],
+    reportsToGmId: '',
+  });
   const [showNewPass,  setShowNewPass]  = useState(false);
   const [formError,    setFormError]    = useState('');
   const [submitting,   setSubmitting]   = useState(false);
@@ -57,8 +71,16 @@ export default function Users() {
   const [showResetPass,    setShowResetPass]   = useState(false);
 
   // ── Edit user dialog ──────────────────────────────────────────────────────
-  const [editTarget,   setEditTarget]   = useState<{ id: string; name: string; email: string; phone: string; role: UserRole; position: string; managerId: string } | null>(null);
-  const [editForm,     setEditForm]     = useState({ name: '', email: '', phone: '', role: 'Telecaller' as UserRole, position: '', managerId: '' });
+  const [editTarget,   setEditTarget]   = useState<{ id: string } | null>(null);
+  const [editForm,     setEditForm]     = useState({
+    name: '',
+    email: '',
+    phone: '',
+    role: 'Telecaller' as UserRole,
+    position: '',
+    managerIds: [] as string[],
+    reportsToGmId: '',
+  });
   const [editError,    setEditError]    = useState('');
   const [editSaving,   setEditSaving]   = useState(false);
 
@@ -67,7 +89,7 @@ export default function Users() {
   const [deleting,     setDeleting]     = useState(false);
 
   const resetForm = () => {
-    setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller', position: '', managerId: '' });
+    setForm({ name: '', email: '', password: '', phone: '', role: 'Telecaller', position: '', managerIds: [], reportsToGmId: '' });
     setFormError('');
     setShowNewPass(false);
   };
@@ -84,7 +106,11 @@ export default function Users() {
 
     const result = await addTelecaller({
       ...form,
-      managerId: form.role === 'Telecaller' ? form.managerId : '',
+      managerIds: form.role === 'Telecaller' ? form.managerIds : [],
+      reportsToGmId:
+        form.role === 'Manager1' && form.reportsToGmId.trim()
+          ? form.reportsToGmId.trim()
+          : undefined,
     });
     setSubmitting(false);
 
@@ -114,8 +140,16 @@ export default function Users() {
   };
 
   const openEditDialog = (user: typeof allUsers[0]) => {
-    setEditTarget({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '', managerId: user.managerId ?? '' });
-    setEditForm({ name: user.name, email: user.email, phone: user.phone ?? '', role: user.role, position: user.position ?? '', managerId: user.managerId ?? '' });
+    setEditTarget({ id: user.id });
+    setEditForm({
+      name: user.name,
+      email: user.email,
+      phone: user.phone ?? '',
+      role: user.role,
+      position: user.position ?? '',
+      managerIds: user.managerIds?.length ? [...user.managerIds] : [],
+      reportsToGmId: user.reportsToGmId ?? '',
+    });
     setEditError('');
   };
 
@@ -132,7 +166,9 @@ export default function Users() {
       phone: editForm.phone.trim(),
       role:  editForm.role,
       position: editForm.position.trim(),
-      managerId: editForm.role === 'Telecaller' ? editForm.managerId : '',
+      managerIds: editForm.role === 'Telecaller' ? editForm.managerIds : [],
+      reportsToGmId:
+        editForm.role === 'Manager1' ? (editForm.reportsToGmId.trim() || null) : null,
     });
     setEditSaving(false);
 
@@ -257,7 +293,17 @@ export default function Users() {
 
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium text-slate-700">Role</Label>
-                <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v as UserRole }))}>
+                <Select
+                  value={form.role}
+                  onValueChange={v =>
+                    setForm(f => ({
+                      ...f,
+                      role: v as UserRole,
+                      managerIds: v === 'Telecaller' ? f.managerIds : [],
+                      reportsToGmId: v === 'Manager1' ? f.reportsToGmId : '',
+                    }))
+                  }
+                >
                   <SelectTrigger className="h-9 border-slate-200 text-sm">
                     <SelectValue />
                   </SelectTrigger>
@@ -270,21 +316,36 @@ export default function Users() {
                 </Select>
               </div>
 
-              {form.role === 'Telecaller' && (
+              {form.role === 'Manager1' && (
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Assign manager (GM or Manager1)</Label>
-                  <Select value={form.managerId || 'none'} onValueChange={v => setForm(f => ({ ...f, managerId: v === 'none' ? '' : v }))}>
+                  <Label className="text-sm font-medium text-slate-700">Assign to GM</Label>
+                  <Select
+                    value={form.reportsToGmId || 'none'}
+                    onValueChange={v => setForm(f => ({ ...f, reportsToGmId: v === 'none' ? '' : v }))}
+                  >
                     <SelectTrigger className="h-9 border-slate-200 text-sm">
-                      <SelectValue placeholder="Select manager" />
+                      <SelectValue placeholder="Select General Manager" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">No manager</SelectItem>
-                      {generalManagers.map(m => (
+                      <SelectItem value="none">No GM selected</SelectItem>
+                      {assignableGeneralManagers.map(m => (
                         <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {assignableGeneralManagers.length === 0 && (
+                    <p className="text-xs text-amber-600">Create a General Manager user first.</p>
+                  )}
                 </div>
+              )}
+
+              {form.role === 'Telecaller' && (
+                <ManagerTagsField
+                  label="Managers (GM / Manager1)"
+                  selectedIds={form.managerIds}
+                  onChange={managerIds => setForm(f => ({ ...f, managerIds }))}
+                  managers={generalManagers.map(m => ({ id: m.id, name: m.name }))}
+                />
               )}
             </div>
 
@@ -495,7 +556,17 @@ export default function Users() {
 
             <div className="space-y-1.5">
               <Label className="text-sm font-medium text-slate-700">Role</Label>
-              <Select value={editForm.role} onValueChange={v => setEditForm(f => ({ ...f, role: v as UserRole }))}>
+              <Select
+                value={editForm.role}
+                onValueChange={v =>
+                  setEditForm(f => ({
+                    ...f,
+                    role: v as UserRole,
+                    managerIds: v === 'Telecaller' ? f.managerIds : [],
+                    reportsToGmId: v === 'Manager1' ? f.reportsToGmId : '',
+                  }))
+                }
+              >
                 <SelectTrigger className="h-9 border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
@@ -509,21 +580,36 @@ export default function Users() {
               </Select>
             </div>
 
-            {editForm.role === 'Telecaller' && (
+            {editForm.role === 'Manager1' && (
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium text-slate-700">Assign manager (GM or Manager1)</Label>
-                <Select value={editForm.managerId || 'none'} onValueChange={v => setEditForm(f => ({ ...f, managerId: v === 'none' ? '' : v }))}>
+                <Label className="text-sm font-medium text-slate-700">Assign to GM</Label>
+                <Select
+                  value={editForm.reportsToGmId || 'none'}
+                  onValueChange={v => setEditForm(f => ({ ...f, reportsToGmId: v === 'none' ? '' : v }))}
+                >
                   <SelectTrigger className="h-9 border-slate-200 text-sm">
-                    <SelectValue placeholder="Select manager" />
+                    <SelectValue placeholder="Select General Manager" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No manager</SelectItem>
-                    {generalManagers.map(m => (
+                    <SelectItem value="none">No GM selected</SelectItem>
+                    {assignableGeneralManagers.map(m => (
                       <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {assignableGeneralManagers.length === 0 && (
+                  <p className="text-xs text-amber-600">Create a General Manager user first.</p>
+                )}
               </div>
+            )}
+
+            {editForm.role === 'Telecaller' && (
+              <ManagerTagsField
+                label="Managers (GM / Manager1)"
+                selectedIds={editForm.managerIds}
+                onChange={managerIds => setEditForm(f => ({ ...f, managerIds }))}
+                managers={generalManagers.map(m => ({ id: m.id, name: m.name }))}
+              />
             )}
 
             <div className="space-y-1.5">

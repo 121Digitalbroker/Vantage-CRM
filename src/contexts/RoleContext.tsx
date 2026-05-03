@@ -20,7 +20,10 @@ export interface AppUser {
   initials: string;
   status: 'Active' | 'Inactive';
   phone?: string;
-  managerId?: string;
+  /** Telecallers: one or more GM / Manager1 ids (stored as JSON in `users.manager_id`). */
+  managerIds?: string[];
+  /** Manager1: optional General Manager user id (`users.reports_to_gm_id`). */
+  reportsToGmId?: string;
   createdAt: string;
   lastLogin?: string;
 }
@@ -31,8 +34,14 @@ function loadSession(): AppUser | null {
   try {
     const raw = localStorage.getItem(STORAGE_SESSION_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as AppUser;
-    return { ...parsed, role: normalizeRole(parsed.role) };
+    const parsed = JSON.parse(raw) as AppUser & { managerId?: string };
+    const role = normalizeRole(parsed.role);
+    let managerIds = parsed.managerIds;
+    if ((!managerIds || managerIds.length === 0) && parsed.managerId) {
+      managerIds = [parsed.managerId];
+    }
+    const { managerId: _omit, ...rest } = parsed as AppUser & { managerId?: string };
+    return { ...rest, role, managerIds };
   } catch { return null; }
 }
 
@@ -71,8 +80,8 @@ interface RoleContextType {
   isTelecaller: boolean;
   login: (email: string, password: string) => LoginResult;
   logout: () => void;
-  addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerId?: string }) => Promise<{ success: boolean; error?: string }>;
-  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerId?: string }) => Promise<boolean>;
+  addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerIds?: string[]; reportsToGmId?: string }) => Promise<{ success: boolean; error?: string }>;
+  editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerIds?: string[]; reportsToGmId?: string | null }) => Promise<boolean>;
   toggleUserStatus: (userId: string) => Promise<void>;
   resetPassword: (userId: string, newPassword: string) => Promise<void>;
   removeUser: (userId: string) => Promise<boolean>;
@@ -136,7 +145,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   const telecallers = allUsers.filter(u => u.role === 'Telecaller' && u.status === 'Active');
   const managedUsers = allUsers.filter(
-    u => u.role === 'Telecaller' && u.status === 'Active' && u.managerId === currentUser?.id
+    u =>
+      u.role === 'Telecaller'
+      && u.status === 'Active'
+      && !!(currentUser?.id && u.managerIds?.includes(currentUser.id)),
   );
   const managedUserIds = managedUsers.map(u => u.id);
 
@@ -159,7 +171,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   // ── Admin actions ──────────────────────────────────────────────────────────
-  const addTelecaller = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerId?: string }) => {
+  const addTelecaller = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerIds?: string[]; reportsToGmId?: string }) => {
     if (allUsers.find(u => u.email.toLowerCase() === data.email.toLowerCase()))
       return { success: false, error: 'A user with this email already exists.' };
 
@@ -172,7 +184,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       status:   'Active' as const,
       phone:    data.phone,
       position: data.position?.trim() || undefined,
-      managerId: data.managerId?.trim() || undefined,
+      managerIds: data.managerIds?.length ? data.managerIds : undefined,
+      reportsToGmId: data.reportsToGmId?.trim() || undefined,
     };
 
     const created = await createUser(newUserPayload);
@@ -206,7 +219,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerId?: string }): Promise<boolean> => {
+  const editUser = async (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerIds?: string[]; reportsToGmId?: string | null }): Promise<boolean> => {
     const success = await updateUser(userId, updates);
     if (success) {
       setAllUsers(prev => prev.map(u => {
@@ -219,7 +232,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           phone:    updates.phone    ?? u.phone,
           role:     updates.role ? normalizeRole(updates.role) : u.role,
           position: updates.position ?? u.position,
-          managerId: updates.managerId ?? u.managerId,
+          managerIds: updates.managerIds !== undefined ? updates.managerIds : u.managerIds,
+          reportsToGmId:
+            updates.reportsToGmId !== undefined
+              ? (updates.reportsToGmId ?? undefined)
+              : u.reportsToGmId,
           initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
         };
       }));
@@ -234,7 +251,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
             phone:    updates.phone ?? prev.phone,
             role:     updates.role ? normalizeRole(updates.role) : prev.role,
             position: updates.position ?? prev.position,
-            managerId: updates.managerId ?? prev.managerId,
+            managerIds: updates.managerIds !== undefined ? updates.managerIds : prev.managerIds,
+            reportsToGmId:
+              updates.reportsToGmId !== undefined
+                ? (updates.reportsToGmId ?? undefined)
+                : prev.reportsToGmId,
             initials: newName.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2),
           };
           saveSession(updated);

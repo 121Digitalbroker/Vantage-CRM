@@ -160,9 +160,10 @@ export default function Leads() {
   const navigate  = useNavigate();
   const [searchParams] = useSearchParams();
   const { currentUser, telecallers, allUsers, isAdmin, isManager, isDigitalMarketer, managedUsers } = useRole();
-  /** Full org directory (every lead). Telecallers + managers only see rows assigned to them. */
-  const seesFullLeadDirectory = isAdmin || isDigitalMarketer;
-  /** Admin + GM + Manager1: assignment column + reassign (managers only see their own rows but may hand off to team). */
+  /** Full org directory (every lead): Admin, Digital Marketer, General Manager only — not Manager1. */
+  const seesFullLeadDirectory =
+    isAdmin || isDigitalMarketer || currentUser?.role === 'Manager';
+  /** Admin + GM + Manager1: assignment column + reassign. Manager1 stays scoped to self + team on the list. */
   const canSeeLeadAssignments = isAdmin || isManager;
 
   const [leads,        setLeads]       = useState<Lead[]>([]);
@@ -201,14 +202,26 @@ export default function Leads() {
     [allUsers]
   );
 
-  /** Assignee filter options on scoped manager view: self + team telecallers only. */
+  /**
+   * Scoped manager (Manager1): assign / filter to self, own telecallers, and every GM / Manager1
+   * so multiple people can route leads to either manager, not only within one subtree.
+   */
   const managerScopeAssignees = useMemo(() => {
     if (!isManager || !currentUser) return [];
     const byId = new Map<string, (typeof allUsers)[0]>();
     byId.set(currentUser.id, currentUser);
     for (const u of managedUsers) byId.set(u.id, u);
-    return [...byId.values()];
-  }, [isManager, currentUser, managedUsers]);
+    for (const u of allUsers) {
+      if (u.status === 'Active' && isManagerKindRole(u.role)) byId.set(u.id, u);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [isManager, currentUser, managedUsers, allUsers]);
+
+  /** Assignment targets: full roster for org-wide roles; scoped list (team + all managers) for Manager1. */
+  const assigneePickerUsers = useMemo(
+    () => (seesFullLeadDirectory ? assigneeUsers : managerScopeAssignees),
+    [seesFullLeadDirectory, assigneeUsers, managerScopeAssignees],
+  );
 
   const getUserName = (id: string) => {
     if (!id?.trim()) return 'Unassigned';
@@ -302,8 +315,7 @@ export default function Leads() {
       await assignLead(leadId, isUnassign ? '' : userId, currentUser.name);
       if (isUnassign) toast.success('Lead unassigned.');
       else {
-        const name = assigneeUsers.find(u => u.id === userId)?.name ?? userId;
-        toast.success(`Lead assigned to ${name}`);
+        toast.success(`Lead assigned to ${getUserName(userId)}`);
       }
     } catch {
       toast.error('Failed to save assignment');
@@ -874,7 +886,7 @@ export default function Leads() {
             <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">Unassigned</SelectItem>
-              {assigneeUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+              {assigneePickerUsers.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -948,7 +960,7 @@ export default function Leads() {
               Delete {selectedLeads.size}
             </Button>
           )}
-          {isAdmin && (
+          {(isAdmin || currentUser?.role === 'Manager') && (
             <Button className="bg-blue-500 text-white hover:bg-blue-600 h-9" onClick={openAddDialog}>
             <Plus className="w-4 h-4 mr-2" />
             Add Lead
@@ -1033,7 +1045,7 @@ export default function Leads() {
                 <SelectContent>
                   <SelectItem value="All">All Assignees</SelectItem>
                   <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  {(seesFullLeadDirectory ? assigneeUsers : managerScopeAssignees).map(u => (
+                  {assigneePickerUsers.map(u => (
                     <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1244,7 +1256,7 @@ export default function Leads() {
                               <DropdownMenuContent align="start" className="w-[165px]">
                                 <DropdownMenuLabel className="text-xs text-slate-500">Assign to</DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-                                {assigneeUsers.map(user => (
+                                {assigneePickerUsers.map(user => (
                                   <DropdownMenuItem
                                     key={user.id}
                                     className={`text-xs cursor-pointer ${lead.assignedUserId === user.id ? 'font-semibold text-blue-600 bg-blue-50' : ''}`}

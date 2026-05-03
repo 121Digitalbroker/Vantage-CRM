@@ -13,6 +13,28 @@ function normalizeRole(role: string): AppUser['role'] {
   return 'Admin';
 }
 
+/** Parse `manager_id`: JSON array `["a","b"]` or legacy single id string. */
+export function parseManagerIdsFromDb(raw: unknown): string[] {
+  if (raw == null || raw === '') return [];
+  const s = String(raw).trim();
+  if (!s) return [];
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr)) return [...new Set(arr.map(String).filter(Boolean))];
+    } catch {
+      return [];
+    }
+  }
+  return [s];
+}
+
+export function serializeManagerIdsToDb(ids: string[]): string | null {
+  const u = [...new Set(ids.map(id => String(id).trim()).filter(Boolean))];
+  if (u.length === 0) return null;
+  return JSON.stringify(u);
+}
+
 function mapToAppUser(row: any): AppUser {
   return {
     id: row.id,
@@ -23,7 +45,8 @@ function mapToAppUser(row: any): AppUser {
     position: row.position ?? undefined,
     status: row.status,
     phone: row.phone,
-    managerId: row.manager_id ?? undefined,
+    managerIds: parseManagerIdsFromDb(row.manager_id),
+    reportsToGmId: row.reports_to_gm_id ? String(row.reports_to_gm_id) : undefined,
     initials: row.initials,
     createdAt: row.created_at,
     lastLogin: row.last_login,
@@ -65,7 +88,8 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
     position: user.position ?? null,
     status: user.status,
     phone: user.phone,
-    manager_id: user.managerId ?? null,
+    manager_id: serializeManagerIdsToDb(user.managerIds ?? []),
+    reports_to_gm_id: user.reportsToGmId?.trim() || null,
     initials: user.initials || makeInitials(user.name),
     created_at: new Date().toISOString(),
   };
@@ -77,9 +101,9 @@ export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promi
     .single();
 
   // Backward compatibility: older DBs may not have the `position` / `manager_id` columns yet.
-  if (error && /(position|manager_id)/i.test(error.message || '')) {
+  if (error && /(position|manager_id|reports_to_gm_id)/i.test(error.message || '')) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { position, manager_id, ...fallbackUser } = newUser;
+    const { position, manager_id, reports_to_gm_id, ...fallbackUser } = newUser;
     const fallback = await supabase
       .from('users')
       .insert(fallbackUser)
@@ -116,7 +140,15 @@ export async function resetUserPassword(userId: string, newPassword: string): Pr
 
 export async function updateUser(
   userId: string,
-  updates: { name?: string; email?: string; phone?: string; role?: string; position?: string; managerId?: string }
+  updates: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+    position?: string;
+    managerIds?: string[];
+    reportsToGmId?: string | null;
+  }
 ): Promise<boolean> {
   const payload: Record<string, any> = {};
   if (updates.name)  payload.name     = updates.name.trim();
@@ -124,7 +156,10 @@ export async function updateUser(
   if (updates.phone !== undefined) payload.phone = updates.phone;
   if (updates.role)  payload.role     = normalizeRole(updates.role);
   if (updates.position !== undefined) payload.position = updates.position.trim();
-  if (updates.managerId !== undefined) payload.manager_id = updates.managerId || null;
+  if (updates.managerIds !== undefined) payload.manager_id = serializeManagerIdsToDb(updates.managerIds);
+  if (updates.reportsToGmId !== undefined) {
+    payload.reports_to_gm_id = updates.reportsToGmId?.trim() || null;
+  }
   if (updates.name)  payload.initials = updates.name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
   let { error } = await supabase
@@ -132,9 +167,9 @@ export async function updateUser(
     .update(payload)
     .eq('id', userId);
 
-  if (error && /(position|manager_id)/i.test(error.message || '')) {
+  if (error && /(position|manager_id|reports_to_gm_id)/i.test(error.message || '')) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { position, manager_id, ...fallbackPayload } = payload;
+    const { position, manager_id, reports_to_gm_id, ...fallbackPayload } = payload;
     const fallback = await supabase
       .from('users')
       .update(fallbackPayload)

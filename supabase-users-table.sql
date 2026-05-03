@@ -54,9 +54,11 @@ CREATE TABLE IF NOT EXISTS public.users (
 -- 2b. Columns expected by the app (safe on existing tables)
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS position TEXT;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS manager_id TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS reports_to_gm_id TEXT;
 
 COMMENT ON COLUMN public.users.position IS 'Optional job title / label shown in Users UI';
-COMMENT ON COLUMN public.users.manager_id IS 'For Telecallers: id of Manager or Manager1 they report to';
+COMMENT ON COLUMN public.users.manager_id IS 'For Telecallers: JSON array of Manager/Manager1 user ids, e.g. ["mgrA","mgrB"], or legacy single uuid text';
+COMMENT ON COLUMN public.users.reports_to_gm_id IS 'For Manager1: optional General Manager (role Manager) user id they report to';
 
 -- 3. Comments
 COMMENT ON TABLE public.users IS 'CRM users: Admin, Manager (GM), Manager1, Digital Marketer, Telecaller';

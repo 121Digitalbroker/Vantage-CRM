@@ -92,10 +92,69 @@ export function withOneSignal(
   });
 }
 
-/** Ask browser + OneSignal for notification permission (bell / slide prompt). */
-export function requestOneSignalPermission(): void {
-  withOneSignal(async (OneSignal) => {
-    await OneSignal.Notifications?.requestPermission?.();
+export type OneSignalPermissionResult = {
+  pushSupported: boolean;
+  permission: NotificationPermission | 'unsupported';
+  /** OneSignal web push subscription on (v16 user model), or null if not exposed */
+  optedIn: boolean | null;
+};
+
+/**
+ * Browser permission and OneSignal subscription are separate in SDK v16.
+ * After permission, we must call PushSubscription.optIn() or the user may stay unsubscribed.
+ *
+ * @see https://documentation.onesignal.com/docs/web-sdk-reference
+ */
+export function requestOneSignalPermission(): Promise<OneSignalPermissionResult> {
+  if (!appId?.trim()) {
+    return Promise.resolve({
+      pushSupported: false,
+      permission: getBrowserNotificationPermission(),
+      optedIn: null,
+    });
+  }
+
+  ensureInitDonePromise();
+
+  return new Promise((resolve) => {
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async (OneSignal: OneSignalNamespace) => {
+      await initDonePromise;
+      let pushSupported = true;
+      try {
+        const s = await OneSignal.Notifications?.isPushSupported?.();
+        if (s === false) pushSupported = false;
+      } catch {
+        /* optional API */
+      }
+
+      if (pushSupported) {
+        try {
+          await OneSignal.Notifications?.requestPermission?.();
+        } catch (e) {
+          console.warn('[OneSignal] requestPermission', e);
+        }
+        try {
+          await OneSignal.User?.PushSubscription?.optIn?.();
+        } catch (e) {
+          console.warn('[OneSignal] PushSubscription.optIn', e);
+        }
+      }
+
+      let optedIn: boolean | null = null;
+      try {
+        const sub = OneSignal.User?.PushSubscription;
+        if (sub && typeof sub.optedIn === 'boolean') optedIn = sub.optedIn;
+      } catch {
+        optedIn = null;
+      }
+
+      resolve({
+        pushSupported,
+        permission: getBrowserNotificationPermission(),
+        optedIn,
+      });
+    });
   });
 }
 

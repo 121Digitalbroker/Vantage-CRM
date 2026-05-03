@@ -177,10 +177,39 @@ export default function Settings() {
                 variant="outline"
                 className="border-slate-200"
                 disabled={!isOneSignalConfigured()}
-                onClick={() => {
-                  requestOneSignalPermission();
-                  setTimeout(() => setPushPerm(getBrowserNotificationPermission()), 1500);
-                  toast.message('If prompted, click Allow. Check browser permission in a few seconds.');
+                onClick={async () => {
+                  const loading = toast.loading('Enabling web push…');
+                  try {
+                    const r = await requestOneSignalPermission();
+                    setPushPerm(r.permission);
+                    toast.dismiss(loading);
+                    if (!r.pushSupported) {
+                      toast.error('Web push is not supported in this browser.');
+                      return;
+                    }
+                    if (r.permission === 'denied') {
+                      toast.error(
+                        'Notifications are blocked. Use the lock icon in the address bar → Site settings → Notifications → Allow for this site.'
+                      );
+                      return;
+                    }
+                    if (r.permission === 'granted' && r.optedIn === true) {
+                      toast.success('Web push is enabled for this browser. You should appear in OneSignal → Audience.');
+                    } else if (r.permission === 'granted' && r.optedIn === false) {
+                      toast.message(
+                        'Browser allowed notifications, but OneSignal still shows unsubscribed. Wait a few seconds and refresh; check service worker / dashboard Site URL.'
+                      );
+                    } else {
+                      toast.message(
+                        r.permission === 'granted'
+                          ? 'Permission granted. If dashboard still shows no subscription, refresh this page once.'
+                          : 'If a prompt appeared, choose Allow. You can also confirm status in OneSignal → Audience → Subscriptions.'
+                      );
+                    }
+                  } catch (e) {
+                    toast.dismiss(loading);
+                    toast.error(e instanceof Error ? e.message : 'Request failed');
+                  }
                 }}
               >
                 <Bell className="w-4 h-4 mr-2" />

@@ -26,21 +26,23 @@ import type { Lead, LeadStatus } from '@/types';
 import { fetchLeads } from '@/src/services/leadsService';
 import { useRole } from '@/src/contexts/RoleContext';
 
-const PIPELINE_STAGES: LeadStatus[] = [
+/** Active funnel only — disqualified outcomes are shown as separate “Not interested” / “Dump” bars so junk does not dominate the chart. */
+const PIPELINE_FUNNEL_STAGES: LeadStatus[] = [
   'New',
   'Interested',
   'Site Visit Scheduled',
   'Busy',
   'Not Reachable',
-  'Fake Query',
 ];
+
+const DUMP_JUNK_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
 
 const CLOSED_STATUSES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Not Reachable'];
 
 /** Primary “success” stage for KPIs (replaces legacy Booked) */
 const VISIT_SCHEDULED: LeadStatus = 'Site Visit Scheduled';
 
-const stageColors = ['#60a5fa', '#a78bfa', '#22d3ee', '#fbbf24', '#94a3b8', '#fb7185'];
+const funnelStageColors = ['#60a5fa', '#a78bfa', '#22d3ee', '#fbbf24', '#94a3b8'];
 const activityColors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
 
 // Add this component at the top of the file or bottom, before export default function
@@ -140,28 +142,61 @@ export default function Dashboard() {
   }, [leads, telecallers.length]);
 
   const pipelineHealth = useMemo(() => {
-    const counts = PIPELINE_STAGES.map(stage => ({
+    const funnel = PIPELINE_FUNNEL_STAGES.map((stage, index) => ({
+      key: stage,
       stage,
       count: leads.filter(l => l.status === stage).length,
+      kind: 'funnel' as const,
+      color: funnelStageColors[index],
     }));
 
-    const totalInPipeline = counts.reduce((acc, curr) => acc + curr.count, 0);
+    const notInterestedCount = leads.filter(l => l.status === 'Not Interested').length;
+    const dumpCount = leads.filter(l => DUMP_JUNK_STATUSES.has(l.status)).length;
 
-    return counts.map((item, index) => {
-      const prevCount = index === 0 ? counts[0].count : counts[index - 1].count;
-      const ratio = index === 0
-        ? 100
-        : prevCount > 0
-          ? Math.min(100, Math.round((item.count / prevCount) * 100))
-          : 0;
+    const funnelVolume = funnel.reduce((acc, b) => acc + b.count, 0);
 
-      return {
-        ...item,
-        ratio,
-        totalInPipeline,
-        color: stageColors[index],
-      };
+    const funnelRows = funnel.map((item, funnelIndex) => {
+      const prevCount = funnelIndex === 0 ? funnel[0].count : funnel[funnelIndex - 1].count;
+      const ratio =
+        funnelIndex === 0
+          ? 100
+          : prevCount > 0
+            ? Math.min(100, Math.round((item.count / prevCount) * 100))
+            : 0;
+      const showChevron = funnelIndex < PIPELINE_FUNNEL_STAGES.length - 1;
+      return { ...item, ratio, totalInPipeline: funnelVolume, showChevron };
     });
+
+    const outcomeRows = [
+      {
+        key: 'Not Interested',
+        stage: 'Not Interested' as const,
+        count: notInterestedCount,
+        kind: 'outcome' as const,
+        color: '#fb7185',
+        ratio: 0,
+        totalInPipeline: funnelVolume,
+        showChevron: false,
+      },
+      {
+        key: 'Dump',
+        stage: 'Dump' as const,
+        count: dumpCount,
+        kind: 'outcome' as const,
+        color: '#a8a29e',
+        ratio: 0,
+        totalInPipeline: funnelVolume,
+        showChevron: false,
+      },
+    ];
+
+    return [...funnelRows, ...outcomeRows];
+  }, [leads]);
+
+  const visitScheduledRate = useMemo(() => {
+    if (leads.length === 0) return 0;
+    const visits = leads.filter(l => l.status === VISIT_SCHEDULED).length;
+    return Math.round((visits / leads.length) * 100);
   }, [leads]);
 
   const dealsBySalesPerson = useMemo(() => {
@@ -206,10 +241,11 @@ export default function Dashboard() {
   }, [leads]);
 
   const progressRings = useMemo(() => {
-    // 1. Lead Conversion Goal
+    // 1. Lead Conversion Goal — exclude junk / not interested so KPI isn’t diluted by disqualified volume
     const closed = leads.filter(l => l.status === VISIT_SCHEDULED).length;
-    const totalOpenOrClosed = leads.filter(l => l.status !== 'Wrong Number' && l.status !== 'Not Interested').length;
-    const conversionRate = totalOpenOrClosed > 0 ? (closed / totalOpenOrClosed) * 100 : 0;
+    const lostOrJunk = new Set<LeadStatus>([...DUMP_JUNK_STATUSES, 'Not Interested']);
+    const conversionEligible = leads.filter(l => !lostOrJunk.has(l.status)).length;
+    const conversionRate = conversionEligible > 0 ? (closed / conversionEligible) * 100 : 0;
 
     // 2. Hot Lead Engagement
     const hotLeads = leads.filter(l => l.leadLevel === 'Hot');
@@ -240,7 +276,7 @@ export default function Dashboard() {
     };
 
     return [
-      { title: 'Conversion Goal', percent: Math.round(conversionRate), value: `${closed}/${totalOpenOrClosed}`, color: '#E07A5F' },
+      { title: 'Conversion Goal', percent: Math.round(conversionRate), value: `${closed}/${conversionEligible}`, color: '#E07A5F' },
       { title: 'Hot Engagement', percent: Math.round(hotEngagedRate), value: `${hotEngaged}/${hotLeads.length}`, color: '#81B29A' },
       { title: 'Revenue Goal', percent: Math.min(100, Math.round(revenueGoalPercent)), value: `${formatINR(achievedRevenue)}/${formatINR(revenueGoal)}`, color: '#F2CC8F' },
     ];
@@ -311,19 +347,14 @@ export default function Dashboard() {
             </div>
             <CardTitle className="text-base font-semibold text-slate-900">Pipeline health</CardTitle>
           </div>
-          <CardDescription className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 mt-1.5">
-            ALL LEADS · LIFETIME · WON, LOST, OPEN
-          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="p-6">
             <div className="text-center mb-10">
-              <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Overall Pipeline Win Rate</h3>
+              <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Visit scheduled rate</h3>
               <div className="text-4xl font-black text-slate-900 flex items-center justify-center gap-2">
-                {pipelineHealth.length > 0 && pipelineHealth[0].totalInPipeline > 0 
-                  ? Math.round((pipelineHealth[pipelineHealth.length - 1].count / pipelineHealth[0].totalInPipeline) * 100) 
-                  : 0}%
-                <span className="text-sm font-medium text-slate-400">conversion</span>
+                {visitScheduledRate}%
+                <span className="text-sm font-medium text-slate-400">of all leads</span>
               </div>
             </div>
             
@@ -360,17 +391,17 @@ export default function Dashboard() {
                   const graphMax = step * 2;
                   
                   const heightPct = item.count === 0 ? 0 : Math.max(2, (item.count / graphMax) * 100);
-                  const isWon = item.stage === VISIT_SCHEDULED;
-                  const barColor = isWon ? 'bg-[#4cb276]' : 'bg-[#ffcd4b]';
+                  const barBg =
+                    item.stage === VISIT_SCHEDULED ? '#4cb276' : item.color;
                   
                   return (
-                    <div key={item.stage} className="flex-1 flex flex-col h-full relative group">
+                    <div key={item.key} className="flex-1 flex flex-col h-full relative group">
                       {/* Bar Container */}
                       <div className="w-full flex-1 flex flex-col justify-end relative px-1.5 md:px-4">
                         {/* Bar with Label Inside/Mid */}
                         <div 
-                          className={`w-full transition-all duration-700 rounded-t-md relative flex items-center justify-center overflow-hidden ${heightPct === 0 ? 'bg-transparent border-b-2 border-slate-100' : barColor + ' shadow-sm hover:brightness-105'}`}
-                          style={{ height: `${heightPct}%` }}
+                          className={`w-full transition-all duration-700 rounded-t-md relative flex items-center justify-center overflow-hidden ${heightPct === 0 ? 'bg-transparent border-b-2 border-slate-100' : 'shadow-sm hover:brightness-105'}`}
+                          style={{ height: `${heightPct}%`, backgroundColor: heightPct === 0 ? undefined : barBg }}
                         >
                            {heightPct > 15 && (
                              <span className="text-white text-[11px] font-black drop-shadow-sm">
@@ -401,12 +432,13 @@ export default function Dashboard() {
                       <div className="absolute -bottom-10 left-0 right-0 text-center text-[10px] font-bold text-slate-500 px-0.5 leading-tight">
                         {item.stage === 'Site Visit Scheduled' ? 'Visit\nSched.' :
                          item.stage === 'Not Reachable' ? 'No\nreach' :
-                         item.stage === 'Fake Query' ? 'Fake\nquery' :
+                         item.stage === 'Dump' ? 'Dump' :
+                         item.stage === 'Not Interested' ? 'Not\nint.' :
                          item.stage === 'Busy' ? 'Busy' : item.stage}
                       </div>
 
-                      {/* Conversion Chevron */}
-                      {index < pipelineHealth.length - 1 && (
+                      {/* Conversion Chevron (only between funnel stages) */}
+                      {item.showChevron && index + 1 < pipelineHealth.length && (
                         <div className="absolute -right-5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-10 pointer-events-none">
                           <div className="relative bg-slate-700 text-white text-[9px] font-black px-1.5 py-1 flex items-center justify-center min-w-[34px] rounded-sm shadow-md">
                             {pipelineHealth[index + 1].ratio}%
@@ -422,14 +454,22 @@ export default function Dashboard() {
             </div>
 
             {/* Legend */}
-            <div className="flex items-center justify-center gap-6 mt-12 pt-6 border-t border-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-12 pt-6 border-t border-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-400">
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-[#ffcd4b] shadow-inner" />
-                Active Pipeline
+                <div className="w-3 h-3 rounded-full bg-[#60a5fa] shadow-inner" />
+                Funnel stages
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-[#4cb276] shadow-inner" />
                 Visit scheduled
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#fb7185] shadow-inner" />
+                Not interested
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#a8a29e] shadow-inner" />
+                Dump (fake / wrong # / low budget)
               </div>
                 </div>
               </div>

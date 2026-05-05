@@ -268,6 +268,42 @@ function mapStatusHistoryRow(row: Record<string, unknown>): StatusHistory {
   };
 }
 
+const LS_ASSIGNMENT_HOURS = 'crm_assignment_inactivity_hours';
+const LS_ASSIGNMENT_MINUTES_LEGACY = 'crm_assignment_timer_minutes';
+
+function clampAssignmentHours(h: number): number {
+  const min = 1 / 60; // 1 minute
+  const max = 720; // 30 days
+  return Math.min(max, Math.max(min, h));
+}
+
+/**
+ * Hours until assignment deadline if assignee never updates pipeline status (Settings → Business).
+ * Defaults to 24. Migrates legacy `crm_assignment_timer_minutes` when hours key is absent.
+ */
+export function getAssignmentInactivityHours(): number {
+  if (typeof localStorage === 'undefined') return 24;
+  const rawH = localStorage.getItem(LS_ASSIGNMENT_HOURS);
+  if (rawH != null && rawH !== '') {
+    const h = parseFloat(rawH);
+    if (Number.isFinite(h) && h > 0) return clampAssignmentHours(h);
+  }
+  const rawM = localStorage.getItem(LS_ASSIGNMENT_MINUTES_LEGACY);
+  if (rawM != null && rawM !== '') {
+    const m = parseInt(rawM, 10);
+    if (Number.isFinite(m) && m > 0) return clampAssignmentHours(m / 60);
+  }
+  return 24;
+}
+
+export type AssignmentExpiryAction = 'unassign' | 'rotate';
+
+/** When the assignment timer expires and the lead is still "New", unassign or hand to rotation queue. */
+export function getAssignmentExpiryAction(): AssignmentExpiryAction {
+  if (typeof localStorage === 'undefined') return 'unassign';
+  return localStorage.getItem('crm_assignment_expiry_action') === 'rotate' ? 'rotate' : 'unassign';
+}
+
 /** Assign a lead to a telecaller, or clear assignment when `userId` is empty. */
 export async function assignLead(
   leadId: string,
@@ -279,9 +315,9 @@ export async function assignLead(
   const previousUserId = currentLead?.assignedUserId || '';
   const isUnassign = !userId?.trim();
 
-  const timerMinutes = parseInt(localStorage.getItem('crm_assignment_timer_minutes') || '60', 10);
+  const hours = getAssignmentInactivityHours();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + timerMinutes * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + hours * 60 * 60 * 1000);
 
   const assignmentUpdate: Partial<Lead> = isUnassign
     ? {
@@ -628,7 +664,7 @@ export async function logStatusChange(
 
 // ── Assignment Timer Functions ───────────────────────────────────────────────
 /**
- * Check if a lead's assignment has expired (1 hour passed without status update)
+ * Assignment deadline passed and assignee has not changed pipeline `status` (stops the timer).
  */
 export function isAssignmentExpired(lead: Lead): boolean {
   if (!lead.assignmentExpiresAt || !lead.assignedAt) return false;

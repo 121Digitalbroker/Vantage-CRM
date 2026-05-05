@@ -1,17 +1,20 @@
 /**
- * useAutoRotateExpiredLeads
+ * Assignment deadline runner (admin session).
  *
- * Runs in the background while the admin is logged in.
- * Every CHECK_INTERVAL_MS it:
- *   1. Fetches all leads
- *   2. Finds any with an expired assignment timer, status still New (no pipeline change)
- *   3. For each, loads rotation config for that lead's **project**; if enabled,
- *      re-assigns to the next user in **that project's** queue
- *   4. Shows a toast so the admin knows what happened
+ * Every CHECK_INTERVAL_MS:
+ *   Fetches leads and finds assignments past deadline with status still "New" and no status update.
+ *   Per Settings → Business:
+ *     - **Unassign** (default): clears assignee so the lead returns to the pool.
+ *     - **Rotate**: if Lead Rotation is enabled for that project, assigns the next user in queue.
  */
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { fetchLeads, assignLead, shouldAutoRotateAfterAssignmentTimer } from '@/src/services/leadsService';
+import {
+  fetchLeads,
+  assignLead,
+  shouldAutoRotateAfterAssignmentTimer,
+  getAssignmentExpiryAction,
+} from '@/src/services/leadsService';
 import {
   loadLeadRotationConfig,
   normalizeProjectKey,
@@ -20,12 +23,14 @@ import {
 import { useRole } from '@/src/contexts/RoleContext';
 import type { AppUser } from '@/src/contexts/RoleContext';
 
-const CHECK_INTERVAL_MS = 60_000; // check every 60 seconds
+const CHECK_INTERVAL_MS = 60_000;
 
 export function useAutoRotateExpiredLeads() {
   const { isAdmin, allUsers, currentUser } = useRole();
   const allUsersRef = useRef(allUsers);
-  useEffect(() => { allUsersRef.current = allUsers; }, [allUsers]);
+  useEffect(() => {
+    allUsersRef.current = allUsers;
+  }, [allUsers]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -39,24 +44,77 @@ export function useAutoRotateExpiredLeads() {
       }
 
       const expired = leads.filter(shouldAutoRotateAfterAssignmentTimer);
-
       if (expired.length === 0) return;
 
+      const action = getAssignmentExpiryAction();
       const byId = new Map<string, AppUser>(allUsersRef.current.map((u) => [u.id, u]));
+      let unassignedCount = 0;
       let reassignedCount = 0;
 
       for (const lead of expired) {
+        if (action === 'unassign') {
+          try {
+            await assignLead(
+              lead.id,
+              '',
+              currentUser?.name || 'System',
+              'Auto-unassigned: no pipeline update before deadline',
+            );
+            unassignedCount += 1;
+          } catch {
+            // Retry next interval
+          }
+          continue;
+        }
+
         const projectKey = normalizeProjectKey(lead.project);
         let config: Awaited<ReturnType<typeof loadLeadRotationConfig>>;
         try {
           config = await loadLeadRotationConfig(projectKey);
         } catch {
+          try {
+            await assignLead(
+              lead.id,
+              '',
+              currentUser?.name || 'System',
+              'Auto-unassigned: rotation unavailable for this project',
+            );
+            unassignedCount += 1;
+          } catch {
+            /* retry later */
+          }
           continue;
         }
-        if (!config.enabled || config.selectedUserIds.length === 0) continue;
+        if (!config.enabled || config.selectedUserIds.length === 0) {
+          try {
+            await assignLead(
+              lead.id,
+              '',
+              currentUser?.name || 'System',
+              'Auto-unassigned: lead rotation not enabled for this project',
+            );
+            unassignedCount += 1;
+          } catch {
+            /* retry later */
+          }
+          continue;
+        }
 
         const nextId = await takeNextRoundRobinAssigneeId(projectKey);
-        if (!nextId) continue;
+        if (!nextId) {
+          try {
+            await assignLead(
+              lead.id,
+              '',
+              currentUser?.name || 'System',
+              'Auto-unassigned: no rotation slot available',
+            );
+            unassignedCount += 1;
+          } catch {
+            /* retry later */
+          }
+          continue;
+        }
 
         try {
           await assignLead(lead.id, nextId, currentUser?.name || 'System (auto-rotate)');
@@ -64,7 +122,7 @@ export function useAutoRotateExpiredLeads() {
           const nextName = byId.get(nextId)?.name ?? nextId;
           const prevName = byId.get(lead.assignedUserId)?.name ?? lead.assignedUserId;
           toast.info(
-            `⏱ Timer expired (still New): "${lead.clientName}" (${projectKey === '__default__' ? 'default project' : projectKey}) ${prevName} → ${nextName}`,
+            `⏱ Deadline passed (still New): "${lead.clientName}" (${projectKey === '__default__' ? 'default project' : projectKey}) ${prevName} → ${nextName}`,
             { duration: 6000 },
           );
         } catch {
@@ -72,13 +130,22 @@ export function useAutoRotateExpiredLeads() {
         }
       }
 
+      if (unassignedCount > 0) {
+        toast.info(
+          `${unassignedCount} lead(s) auto-unassigned (deadline passed, still New — no pipeline update).`,
+          { duration: 6000 },
+        );
+        console.info(`[AssignmentExpiry] Unassigned ${unassignedCount} lead(s)`);
+      }
       if (reassignedCount > 0) {
-        console.info(`[AutoRotate] Re-assigned ${reassignedCount} expired lead(s)`);
+        console.info(`[AssignmentExpiry] Re-assigned ${reassignedCount} lead(s)`);
       }
     };
 
     void run();
-    const timer = window.setInterval(() => { void run(); }, CHECK_INTERVAL_MS);
+    const timer = window.setInterval(() => {
+      void run();
+    }, CHECK_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [isAdmin, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAdmin, currentUser]);
 }

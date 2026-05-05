@@ -17,6 +17,7 @@ import type { Lead } from '@/types';
 import {
   assignLead,
   fetchLeads,
+  getAssignmentInactivityHours,
   isAssignmentExpired,
   isInNewStatusAssignmentRotationWindow,
   shouldAutoRotateAfterAssignmentTimer,
@@ -308,14 +309,7 @@ export default function LeadAssignmentRotation() {
     return `${s}s`;
   }, [liveTimerStats.nearestExpiryAt, nowMs]);
 
-  const assignmentWindowMinutes = useMemo(() => {
-    try {
-      const n = parseInt(localStorage.getItem('crm_assignment_timer_minutes') || '60', 10);
-      return Number.isFinite(n) && n > 0 ? n : 60;
-    } catch {
-      return 60;
-    }
-  }, []);
+  const assignmentWindowMinutes = getAssignmentInactivityHours() * 60;
 
   const getLeadTimerLabel = (lead: Lead): string => {
     if (!lead.assignedUserId) return 'Unassigned';

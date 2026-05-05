@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { Bell, Trash2, Plus } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRole } from '@/src/contexts/RoleContext';
 import {
   getBrowserNotificationPermission,
@@ -28,7 +29,8 @@ export default function Settings() {
   );
   const [goal, setGoal] = useState('50000000');
   const [avgValue, setAvgValue] = useState('5000000');
-  const [assignmentTimerMinutes, setAssignmentTimerMinutes] = useState('60');
+  const [assignmentInactivityHours, setAssignmentInactivityHours] = useState('24');
+  const [assignmentExpiryAction, setAssignmentExpiryAction] = useState<'unassign' | 'rotate'>('unassign');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [newCampaign, setNewCampaign] = useState({ name: '', platform: 'Google Ads', spend: '' });
 
@@ -39,7 +41,20 @@ export default function Settings() {
   useEffect(() => {
     setGoal(localStorage.getItem('crm_revenue_goal') || '50000000');
     setAvgValue(localStorage.getItem('crm_avg_deal_value') || '5000000');
-    setAssignmentTimerMinutes(localStorage.getItem('crm_assignment_timer_minutes') || '60');
+    const h = localStorage.getItem('crm_assignment_inactivity_hours');
+    if (h != null && h !== '') {
+      setAssignmentInactivityHours(h);
+    } else {
+      const legacyM = localStorage.getItem('crm_assignment_timer_minutes');
+      if (legacyM != null && legacyM !== '') {
+        const mins = parseInt(legacyM, 10);
+        setAssignmentInactivityHours(Number.isFinite(mins) && mins > 0 ? String(Math.round((mins / 60) * 100) / 100) : '24');
+      } else {
+        setAssignmentInactivityHours('24');
+      }
+    }
+    const act = localStorage.getItem('crm_assignment_expiry_action');
+    setAssignmentExpiryAction(act === 'rotate' ? 'rotate' : 'unassign');
     const saved = localStorage.getItem('crm_campaigns');
     if (saved) setCampaigns(JSON.parse(saved));
   }, []);
@@ -47,7 +62,15 @@ export default function Settings() {
   const saveBusinessSettings = () => {
     localStorage.setItem('crm_revenue_goal', goal);
     localStorage.setItem('crm_avg_deal_value', avgValue);
-    localStorage.setItem('crm_assignment_timer_minutes', assignmentTimerMinutes);
+    const hoursNum = parseFloat(assignmentInactivityHours);
+    const safeHours =
+      Number.isFinite(hoursNum) && hoursNum > 0
+        ? Math.min(720, Math.max(1 / 60, hoursNum))
+        : 24;
+    const hoursStr = String(safeHours);
+    localStorage.setItem('crm_assignment_inactivity_hours', hoursStr);
+    localStorage.setItem('crm_assignment_expiry_action', assignmentExpiryAction);
+    localStorage.setItem('crm_assignment_timer_minutes', String(Math.round(safeHours * 60)));
     toast.success('Business settings saved');
   };
 
@@ -287,17 +310,46 @@ export default function Settings() {
             </div>
             <Separator className="bg-slate-200" />
             <div className="space-y-2">
-              <Label htmlFor="assignment_timer" className="text-slate-700 font-medium">Lead Assignment Timer (Minutes)</Label>
-              <Input 
-                id="assignment_timer" 
-                type="number" 
-                min="5"
-                max="1440"
-                value={assignmentTimerMinutes}
-                onChange={(e) => setAssignmentTimerMinutes(e.target.value)}
-                className="bg-slate-50 border-slate-200 focus-visible:ring-blue-500" 
+              <Label htmlFor="assignment_hours" className="text-slate-700 font-medium">
+                Assignment deadline (hours)
+              </Label>
+              <Input
+                id="assignment_hours"
+                type="number"
+                min={1 / 60}
+                step={0.25}
+                max={720}
+                value={assignmentInactivityHours}
+                onChange={(e) => setAssignmentInactivityHours(e.target.value)}
+                className="bg-slate-50 border-slate-200 focus-visible:ring-blue-500"
               />
-              <p className="text-xs text-slate-500">How long can a telecaller hold a lead before it auto-reassigns? (5 min - 24 hours)</p>
+              <p className="text-xs text-slate-500">
+                If an assignee does not change the lead&apos;s <strong>pipeline status</strong> within this time, the deadline
+                passes. Default 24 hours. Range: 1 minute (0.0167h) to 30 days.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="assignment_expiry_action" className="text-slate-700 font-medium">
+                When deadline passes (lead still &quot;New&quot;)
+              </Label>
+              <Select
+                value={assignmentExpiryAction}
+                onValueChange={(v) => setAssignmentExpiryAction(v as 'unassign' | 'rotate')}
+              >
+                <SelectTrigger id="assignment_expiry_action" className="bg-slate-50 border-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassign">Unassign (lead goes back to the pool)</SelectItem>
+                  <SelectItem value="rotate">
+                    Rotate to next person (Lead Rotation page — per project)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Auto-release runs while an <strong>admin</strong> session is open (about once per minute). Changing status from
+                New stops the timer.
+              </p>
             </div>
           </CardContent>
           <CardFooter className="border-t border-slate-200 px-6 py-4 bg-slate-50/50 rounded-b-xl justify-end">

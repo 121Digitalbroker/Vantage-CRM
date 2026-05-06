@@ -59,7 +59,7 @@ const DUMP_VIEW_STATUSES = new Set<LeadStatus>([...DUMP_STATUSES, 'Not Intereste
 const DUMP_HIDE_GRACE_MS = 10_000;
 
 function farFutureFollowUpIso(): string {
-  return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 }
 
 type SortField = 'createdAt' | 'followUpDate' | 'leadLevel' | 'status' | 'assignedUserId';

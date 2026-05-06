@@ -29,7 +29,7 @@ export default function Settings() {
   );
   const [goal, setGoal] = useState('50000000');
   const [avgValue, setAvgValue] = useState('5000000');
-  const [assignmentInactivityHours, setAssignmentInactivityHours] = useState('24');
+  const [assignmentInactivityHours, setAssignmentInactivityHours] = useState('1');
   const [assignmentExpiryAction, setAssignmentExpiryAction] = useState<'unassign' | 'rotate'>('unassign');
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [newCampaign, setNewCampaign] = useState({ name: '', platform: 'Google Ads', spend: '' });
@@ -48,9 +48,9 @@ export default function Settings() {
       const legacyM = localStorage.getItem('crm_assignment_timer_minutes');
       if (legacyM != null && legacyM !== '') {
         const mins = parseInt(legacyM, 10);
-        setAssignmentInactivityHours(Number.isFinite(mins) && mins > 0 ? String(Math.round((mins / 60) * 100) / 100) : '24');
+        setAssignmentInactivityHours(Number.isFinite(mins) && mins > 0 ? String(Math.round((mins / 60) * 100) / 100) : '1');
       } else {
-        setAssignmentInactivityHours('24');
+        setAssignmentInactivityHours('1');
       }
     }
     const act = localStorage.getItem('crm_assignment_expiry_action');
@@ -66,7 +66,7 @@ export default function Settings() {
     const safeHours =
       Number.isFinite(hoursNum) && hoursNum > 0
         ? Math.min(720, Math.max(1 / 60, hoursNum))
-        : 24;
+        : 1;
     const hoursStr = String(safeHours);
     localStorage.setItem('crm_assignment_inactivity_hours', hoursStr);
     localStorage.setItem('crm_assignment_expiry_action', assignmentExpiryAction);
@@ -325,7 +325,7 @@ export default function Settings() {
               />
               <p className="text-xs text-slate-500">
                 If an assignee does not change the lead&apos;s <strong>pipeline status</strong> within this time, the deadline
-                passes. Default 24 hours. Range: 1 minute (0.0167h) to 30 days.
+                passes. Default 1 hour (60 minutes). Range: 1 minute (0.0167h) to 30 days.
               </p>
             </div>
             <div className="space-y-2">

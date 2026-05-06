@@ -143,7 +143,7 @@ function includeInFollowUpWorkload(lead: Lead, graceUntilById: Record<string, nu
 }
 
 function farFutureFollowUpIso(): string {
-  return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 }
 
 export default function TelecallerDashboard() {

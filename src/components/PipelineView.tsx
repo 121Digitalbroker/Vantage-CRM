@@ -26,7 +26,7 @@ import { updateLeadWithAudit } from '@/src/services/leadsService';
 const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
 
 function farFutureFollowUpIso(): string {
-  return new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 }
 import { useRole } from '@/src/contexts/RoleContext';
 import { useNavigate } from 'react-router-dom';

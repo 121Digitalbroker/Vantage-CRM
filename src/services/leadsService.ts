@@ -279,10 +279,10 @@ function clampAssignmentHours(h: number): number {
 
 /**
  * Hours until assignment deadline if assignee never updates pipeline status (Settings → Business).
- * Defaults to 24. Migrates legacy `crm_assignment_timer_minutes` when hours key is absent.
+ * Defaults to 1 hour. Migrates legacy `crm_assignment_timer_minutes` when hours key is absent.
  */
 export function getAssignmentInactivityHours(): number {
-  if (typeof localStorage === 'undefined') return 24;
+  if (typeof localStorage === 'undefined') return 1;
   const rawH = localStorage.getItem(LS_ASSIGNMENT_HOURS);
   if (rawH != null && rawH !== '') {
     const h = parseFloat(rawH);
@@ -293,7 +293,7 @@ export function getAssignmentInactivityHours(): number {
     const m = parseInt(rawM, 10);
     if (Number.isFinite(m) && m > 0) return clampAssignmentHours(m / 60);
   }
-  return 24;
+  return 1;
 }
 
 export type AssignmentExpiryAction = 'unassign' | 'rotate';

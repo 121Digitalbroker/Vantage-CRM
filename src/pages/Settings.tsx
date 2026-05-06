@@ -30,7 +30,9 @@ export default function Settings() {
   const [goal, setGoal] = useState('50000000');
   const [avgValue, setAvgValue] = useState('5000000');
   const [assignmentInactivityHours, setAssignmentInactivityHours] = useState('1');
+  const [notInterestedUnassignHours, setNotInterestedUnassignHours] = useState('24');
   const [assignmentExpiryAction, setAssignmentExpiryAction] = useState<'unassign' | 'rotate'>('unassign');
+  const [assignmentAutoReleasePaused, setAssignmentAutoReleasePaused] = useState(false);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [newCampaign, setNewCampaign] = useState({ name: '', platform: 'Google Ads', spend: '' });
 
@@ -55,6 +57,14 @@ export default function Settings() {
     }
     const act = localStorage.getItem('crm_assignment_expiry_action');
     setAssignmentExpiryAction(act === 'rotate' ? 'rotate' : 'unassign');
+    setAssignmentAutoReleasePaused(localStorage.getItem('crm_assignment_auto_release_paused') === 'true');
+    const ni = localStorage.getItem('crm_not_interested_unassign_hours');
+    if (ni != null && ni !== '') {
+      const parsed = parseFloat(ni);
+      setNotInterestedUnassignHours(Number.isFinite(parsed) && parsed > 0 ? String(parsed) : '24');
+    } else {
+      setNotInterestedUnassignHours('24');
+    }
     const saved = localStorage.getItem('crm_campaigns');
     if (saved) setCampaigns(JSON.parse(saved));
   }, []);
@@ -70,7 +80,14 @@ export default function Settings() {
     const hoursStr = String(safeHours);
     localStorage.setItem('crm_assignment_inactivity_hours', hoursStr);
     localStorage.setItem('crm_assignment_expiry_action', assignmentExpiryAction);
+    localStorage.setItem('crm_assignment_auto_release_paused', assignmentAutoReleasePaused ? 'true' : 'false');
     localStorage.setItem('crm_assignment_timer_minutes', String(Math.round(safeHours * 60)));
+    const niHoursNum = parseFloat(notInterestedUnassignHours);
+    const safeNotInterestedHours =
+      Number.isFinite(niHoursNum) && niHoursNum > 0
+        ? Math.min(720, Math.max(1 / 60, niHoursNum))
+        : 24;
+    localStorage.setItem('crm_not_interested_unassign_hours', String(safeNotInterestedHours));
     toast.success('Business settings saved');
   };
 
@@ -349,6 +366,46 @@ export default function Settings() {
               <p className="text-xs text-slate-500">
                 Auto-release runs while an <strong>admin</strong> session is open (about once per minute). Changing status from
                 New stops the timer.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="assignment_auto_release_state" className="text-slate-700 font-medium">
+                Auto-release worker
+              </Label>
+              <Select
+                value={assignmentAutoReleasePaused ? 'paused' : 'active'}
+                onValueChange={(v) => setAssignmentAutoReleasePaused(v === 'paused')}
+              >
+                <SelectTrigger id="assignment_auto_release_state" className="bg-slate-50 border-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active (run timers)</SelectItem>
+                  <SelectItem value="paused">Paused (do not auto-unassign/rotate)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Pause stops all automatic assignment actions, including <strong>New</strong> deadline and{' '}
+                <strong>Not Interested</strong> auto-unassign.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="not_interested_hours" className="text-slate-700 font-medium">
+                Not Interested auto-unassign (hours)
+              </Label>
+              <Input
+                id="not_interested_hours"
+                type="number"
+                min={1 / 60}
+                step={0.25}
+                max={720}
+                value={notInterestedUnassignHours}
+                onChange={(e) => setNotInterestedUnassignHours(e.target.value)}
+                className="bg-slate-50 border-slate-200 focus-visible:ring-blue-500"
+              />
+              <p className="text-xs text-slate-500">
+                If a lead stays in <strong>Not Interested</strong> without status change, it is auto-unassigned after this
+                time. Default 24 hours.
               </p>
             </div>
           </CardContent>

@@ -57,6 +57,20 @@ const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Bu
 const DUMP_VIEW_STATUSES = new Set<LeadStatus>([...DUMP_STATUSES, 'Not Interested']);
 /** After marking dump, row stays in "Active" list this long before disappearing */
 const DUMP_HIDE_GRACE_MS = 10_000;
+const LEADS_FILTERS_LS_PREFIX = 'crm_leads_filters_v1';
+
+type LeadsFilterSnapshot = {
+  searchTerm: string;
+  statusFilter: string;
+  levelFilter: string;
+  assigneeFilter: string;
+  dumpFilter: 'Active' | 'Dump' | 'All';
+  dateFilterField: 'none' | 'createdAt' | 'followUpDate';
+  dateFromStr: string;
+  dateToStr: string;
+  duplicateFilter: 'All' | 'Name' | 'Phone' | 'NameOrPhone';
+  viewMode: 'table' | 'pipeline';
+};
 
 function farFutureFollowUpIso(): string {
   return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -165,22 +179,36 @@ export default function Leads() {
     isAdmin || isDigitalMarketer || currentUser?.role === 'Manager';
   /** Admin + GM + Manager1: assignment column + reassign. Manager1 stays scoped to self + team on the list. */
   const canSeeLeadAssignments = isAdmin || isManager;
+  const leadsFiltersStorageKey = `${LEADS_FILTERS_LS_PREFIX}:${currentUser?.id ?? 'anonymous'}`;
+  const readSavedFilters = (): Partial<LeadsFilterSnapshot> => {
+    try {
+      const raw = localStorage.getItem(leadsFiltersStorageKey);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Partial<LeadsFilterSnapshot> | null;
+      if (!parsed || typeof parsed !== 'object') return {};
+      return parsed;
+    } catch {
+      return {};
+    }
+  };
+  const savedFilters = readSavedFilters();
+  const querySearch = searchParams.get('q');
 
   const [leads,        setLeads]       = useState<Lead[]>([]);
   const [loading,      setLoading]     = useState(true);
   const [error,        setError]       = useState<string | null>(null);
-  const [searchTerm,   setSearchTerm]  = useState(searchParams.get('q') ?? '');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [levelFilter,  setLevelFilter]  = useState('All');
-  const [assigneeFilter, setAssigneeFilter] = useState('All');
-  const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>('Active');
+  const [searchTerm,   setSearchTerm]  = useState(querySearch ?? savedFilters.searchTerm ?? '');
+  const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? 'All');
+  const [levelFilter,  setLevelFilter]  = useState(savedFilters.levelFilter ?? 'All');
+  const [assigneeFilter, setAssigneeFilter] = useState(savedFilters.assigneeFilter ?? 'All');
+  const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>(savedFilters.dumpFilter ?? 'Active');
   /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
   const [dumpGraceUntil, setDumpGraceUntil] = useState<Record<string, number>>({});
   /** Date range filter: which timestamp to compare (local calendar day) */
-  const [dateFilterField, setDateFilterField] = useState<'none' | 'createdAt' | 'followUpDate'>('none');
-  const [dateFromStr, setDateFromStr] = useState('');
-  const [dateToStr, setDateToStr] = useState('');
-  const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>('All');
+  const [dateFilterField, setDateFilterField] = useState<'none' | 'createdAt' | 'followUpDate'>(savedFilters.dateFilterField ?? 'none');
+  const [dateFromStr, setDateFromStr] = useState(savedFilters.dateFromStr ?? '');
+  const [dateToStr, setDateToStr] = useState(savedFilters.dateToStr ?? '');
+  const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>(savedFilters.duplicateFilter ?? 'All');
   const [sortField,    setSortField]   = useState<SortField>('createdAt');
   const [sortDir,      setSortDir]     = useState<SortDir>('desc');
 
@@ -196,7 +224,7 @@ export default function Leads() {
   const [noteText, setNoteText]         = useState('');
   const [fuData, setFuData]             = useState({ type: 'Call', date: '', notes: '' });
   const [saving, setSaving]             = useState(false);
-  const [viewMode, setViewMode]         = useState<'table' | 'pipeline'>('table');
+  const [viewMode, setViewMode]         = useState<'table' | 'pipeline'>(savedFilters.viewMode ?? 'table');
   const assigneeUsers = useMemo(
     () => allUsers.filter(u => u.status === 'Active' && (u.role === 'Telecaller' || isManagerKindRole(u.role))),
     [allUsers]
@@ -258,8 +286,37 @@ export default function Leads() {
   useEffect(() => { loadLeads(); }, [currentUser?.id, currentUser?.role, seesFullLeadDirectory, isManager, managedTeamKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    setSearchTerm(searchParams.get('q') ?? '');
+    const q = searchParams.get('q');
+    if (q !== null) setSearchTerm(q);
   }, [searchParams]);
+
+  useEffect(() => {
+    const snapshot: LeadsFilterSnapshot = {
+      searchTerm,
+      statusFilter,
+      levelFilter,
+      assigneeFilter,
+      dumpFilter,
+      dateFilterField,
+      dateFromStr,
+      dateToStr,
+      duplicateFilter,
+      viewMode,
+    };
+    localStorage.setItem(leadsFiltersStorageKey, JSON.stringify(snapshot));
+  }, [
+    leadsFiltersStorageKey,
+    searchTerm,
+    statusFilter,
+    levelFilter,
+    assigneeFilter,
+    dumpFilter,
+    dateFilterField,
+    dateFromStr,
+    dateToStr,
+    duplicateFilter,
+    viewMode,
+  ]);
 
   // ── Sort toggle ──────────────────────────────────────────────────────────
   const toggleSort = (field: SortField) => {

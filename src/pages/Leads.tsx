@@ -63,6 +63,7 @@ type LeadsFilterSnapshot = {
   searchTerm: string;
   statusFilter: string;
   levelFilter: string;
+  projectFilter: string;
   assigneeFilter: string;
   dumpFilter: 'Active' | 'Dump' | 'All';
   dateFilterField: 'none' | 'createdAt' | 'followUpDate';
@@ -200,6 +201,7 @@ export default function Leads() {
   const [searchTerm,   setSearchTerm]  = useState(querySearch ?? savedFilters.searchTerm ?? '');
   const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? 'All');
   const [levelFilter,  setLevelFilter]  = useState(savedFilters.levelFilter ?? 'All');
+  const [projectFilter, setProjectFilter] = useState(savedFilters.projectFilter ?? 'All');
   const [assigneeFilter, setAssigneeFilter] = useState(savedFilters.assigneeFilter ?? 'All');
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>(savedFilters.dumpFilter ?? 'Active');
   /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
@@ -295,6 +297,7 @@ export default function Leads() {
       searchTerm,
       statusFilter,
       levelFilter,
+      projectFilter,
       assigneeFilter,
       dumpFilter,
       dateFilterField,
@@ -309,6 +312,7 @@ export default function Leads() {
     searchTerm,
     statusFilter,
     levelFilter,
+    projectFilter,
     assigneeFilter,
     dumpFilter,
     dateFilterField,
@@ -456,6 +460,7 @@ export default function Leads() {
       // Clear filters so the new lead is visible (new leads are usually "New" status)
       setStatusFilter('All');
       setLevelFilter('All');
+      setProjectFilter('All');
       setAssigneeFilter('All');
       setSearchTerm('');
       setDateFilterField('none');
@@ -813,6 +818,7 @@ export default function Leads() {
         || (lead.campaignName ?? '').toLowerCase().includes(q);
       const matchesStatus   = statusFilter   === 'All' || lead.status         === statusFilter;
       const matchesLevel    = levelFilter    === 'All' || lead.leadLevel       === levelFilter;
+      const matchesProject  = projectFilter  === 'All' || lead.project         === projectFilter;
       const matchesAssignee = assigneeFilter === 'All'
         || (assigneeFilter === '__unassigned__' ? !lead.assignedUserId : lead.assignedUserId === assigneeFilter);
       const isDumpView = DUMP_VIEW_STATUSES.has(lead.status);
@@ -857,9 +863,19 @@ export default function Leads() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesLevel && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
+      return matchesSearch && matchesStatus && matchesLevel && matchesProject && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
+  }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
+
+  const projectFilterOptions = useMemo(() => {
+    const projectNames: string[] = leads.reduce<string[]>((acc, lead) => {
+      const name = typeof lead.project === 'string' ? lead.project.trim() : '';
+      if (name) acc.push(name);
+      return acc;
+    }, []);
+    const names = new Set<string>(projectNames);
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [leads]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -878,6 +894,7 @@ export default function Leads() {
   const anyFilter =
     statusFilter !== 'All' ||
     levelFilter !== 'All' ||
+    projectFilter !== 'All' ||
     assigneeFilter !== 'All' ||
     dumpFilter !== 'Active' ||
     duplicateFilter !== 'All' ||
@@ -1093,6 +1110,19 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
+            <Select value={projectFilter} onValueChange={setProjectFilter}>
+              <SelectTrigger className="h-8 text-xs w-[180px] border-slate-200 bg-slate-50">
+                <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
+                <SelectValue placeholder="All Projects" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Projects</SelectItem>
+                {projectFilterOptions.map(project => (
+                  <SelectItem key={project} value={project}>{project}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             {(seesFullLeadDirectory || isManager) && (
               <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
                 <SelectTrigger className="h-8 text-xs w-[150px] border-slate-200 bg-slate-50">
@@ -1172,6 +1202,7 @@ export default function Leads() {
                 onClick={() => {
                   setStatusFilter('All');
                   setLevelFilter('All');
+                  setProjectFilter('All');
                   setAssigneeFilter('All');
                   setDumpFilter('Active');
                   setDuplicateFilter('All');

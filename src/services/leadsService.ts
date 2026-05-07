@@ -98,6 +98,25 @@ function isMissingNotesTableError(error: { message?: string; code?: string; deta
   );
 }
 
+function mapDbNoteRowToNote(row: Record<string, unknown>, leadIdFallback: string): DemoNote {
+  return {
+    id: String(row.id ?? ''),
+    leadId: String(row.lead_id ?? leadIdFallback),
+    content: String(row.content ?? ''),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    createdBy: String(row.created_by ?? ''),
+  };
+}
+
+function noteSignature(note: Pick<DemoNote, 'leadId' | 'content' | 'createdAt' | 'createdBy'>): string {
+  return [
+    note.leadId.trim(),
+    note.content.trim(),
+    note.createdAt.trim(),
+    note.createdBy.trim(),
+  ].join('||');
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapToLead(row: Record<string, any>): Lead {
   const rawStatus = normalizeLeadStatus(String(row.status ?? ''));
@@ -520,7 +539,7 @@ export async function deleteLead(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-// ── Notes & Follow-ups (demo-only; extend for Supabase later) ───────────────
+// ── Notes & Follow-ups ────────────────────────────────────────────────────────
 export type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory };
 
 export async function getNotes(leadId: string): Promise<DemoNote[]> {
@@ -540,16 +559,56 @@ export async function getNotes(leadId: string): Promise<DemoNote[]> {
       );
       return [];
     }
-    throw new Error(error.message);
+    console.warn('[CRM] lead_notes read failed; using local fallback notes.', error.message);
+    return demoGetNotes(leadId);
   }
 
-  return (data ?? []).map((row) => ({
-    id: String(row.id ?? ''),
-    leadId: String(row.lead_id ?? leadId),
-    content: String(row.content ?? ''),
-    createdAt: String(row.created_at ?? new Date().toISOString()),
-    createdBy: String(row.created_by ?? ''),
-  }));
+  const dbNotes = (data ?? []).map((row) => mapDbNoteRowToNote(row as Record<string, unknown>, leadId));
+
+  // Recovery path: older notes were browser-local before DB migration.
+  // Merge them into the UI immediately, and best-effort backfill to DB once.
+  const legacyNotes = await demoGetNotes(leadId);
+  if (legacyNotes.length === 0) return dbNotes;
+
+  const dbSignatures = new Set(dbNotes.map(noteSignature));
+  const legacyMissingInDb = legacyNotes.filter((n) => !dbSignatures.has(noteSignature(n)));
+
+  if (legacyMissingInDb.length > 0) {
+    try {
+      const { data: inserted, error: insertError } = await supabase
+        .from('lead_notes')
+        .insert(
+          legacyMissingInDb.map((n) => ({
+            lead_id: n.leadId,
+            content: n.content,
+            created_by: n.createdBy,
+            created_at: n.createdAt,
+          }))
+        )
+        .select('id, lead_id, content, created_at, created_by');
+      if (!insertError && inserted) {
+        for (const row of inserted) {
+          const mapped = mapDbNoteRowToNote(row as Record<string, unknown>, leadId);
+          dbSignatures.add(noteSignature(mapped));
+          dbNotes.push(mapped);
+        }
+      }
+    } catch {
+      // Ignore sync failures; we still return merged notes below.
+    }
+  }
+
+  const merged = [...dbNotes];
+  const seen = new Set(merged.map(noteSignature));
+  for (const legacy of legacyNotes) {
+    const sig = noteSignature(legacy);
+    if (!seen.has(sig)) {
+      merged.push(legacy);
+      seen.add(sig);
+    }
+  }
+
+  return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function addNote(leadId: string, content: string, userName: string): Promise<DemoNote> {
@@ -575,7 +634,8 @@ export async function addNote(leadId: string, content: string, userName: string)
         );
         note = await demoAddNote(leadId, content, userName);
       } else {
-        throw new Error(error.message);
+        console.warn('[CRM] lead_notes write failed; saving note in local fallback.', error.message);
+        note = await demoAddNote(leadId, content, userName);
       }
     } else {
       note = {

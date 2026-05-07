@@ -86,6 +86,18 @@ function isMissingHistoryTableError(error: { message?: string; code?: string; de
   );
 }
 
+function isMissingNotesTableError(error: { message?: string; code?: string; details?: string }): boolean {
+  const code = String(error?.code ?? '');
+  const blob = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
+  return (
+    code === 'PGRST205'
+    || code === '42P01'
+    || blob.includes('schema cache')
+    || blob.includes('could not find the table')
+    || (blob.includes('relation') && blob.includes('does not exist'))
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapToLead(row: Record<string, any>): Lead {
   const rawStatus = normalizeLeadStatus(String(row.status ?? ''));
@@ -512,11 +524,70 @@ export async function deleteLead(id: string): Promise<void> {
 export type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory };
 
 export async function getNotes(leadId: string): Promise<DemoNote[]> {
-  return demoGetNotes(leadId);
+  if (useDemoLeads()) return demoGetNotes(leadId);
+
+  const { data, error } = await supabase
+    .from('lead_notes')
+    .select('id, lead_id, content, created_at, created_by')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    if (isMissingNotesTableError(error)) {
+      console.warn(
+        '[CRM] lead_notes missing; run supabase-lead-notes.sql. Notes reads return [].',
+        error.message
+      );
+      return [];
+    }
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => ({
+    id: String(row.id ?? ''),
+    leadId: String(row.lead_id ?? leadId),
+    content: String(row.content ?? ''),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+    createdBy: String(row.created_by ?? ''),
+  }));
 }
 
 export async function addNote(leadId: string, content: string, userName: string): Promise<DemoNote> {
-  const note = await demoAddNote(leadId, content, userName);
+  let note: DemoNote;
+  if (useDemoLeads()) {
+    note = await demoAddNote(leadId, content, userName);
+  } else {
+    const { data, error } = await supabase
+      .from('lead_notes')
+      .insert({
+        lead_id: leadId,
+        content: content.trim(),
+        created_by: userName,
+      })
+      .select('id, lead_id, content, created_at, created_by')
+      .single();
+
+    if (error) {
+      if (isMissingNotesTableError(error)) {
+        console.warn(
+          '[CRM] lead_notes missing; note saved in local fallback only. Run supabase-lead-notes.sql.',
+          error.message
+        );
+        note = await demoAddNote(leadId, content, userName);
+      } else {
+        throw new Error(error.message);
+      }
+    } else {
+      note = {
+        id: String(data.id ?? ''),
+        leadId: String(data.lead_id ?? leadId),
+        content: String(data.content ?? content),
+        createdAt: String(data.created_at ?? new Date().toISOString()),
+        createdBy: String(data.created_by ?? userName),
+      };
+    }
+  }
+
   const now = new Date().toISOString();
   // Persist last contacted on the lead (notes were only in local store; DB must still update)
   if (useDemoLeads()) {

@@ -18,6 +18,7 @@ import { Table, TableCell, TableHead, TableHeader, TableRow, TableBody } from '@
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -63,7 +64,8 @@ type LeadsFilterSnapshot = {
   searchTerm: string;
   statusFilter: string;
   levelFilter: string;
-  projectFilter: string;
+  /** Empty = all projects */
+  projectFilter: string[];
   assigneeFilter: string;
   dumpFilter: 'Active' | 'Dump' | 'All';
   dateFilterField: 'none' | 'createdAt' | 'followUpDate';
@@ -80,6 +82,17 @@ function farFutureFollowUpIso(): string {
 type SortField = 'createdAt' | 'followUpDate' | 'leadLevel' | 'status' | 'assignedUserId';
 type SortDir   = 'asc' | 'desc';
 const LEVEL_ORDER: Record<LeadLevel, number> = { Hot: 0, Warm: 1, Cold: 2 };
+
+function normalizeSavedProjectFilter(raw: unknown): string[] {
+  if (Array.isArray(raw) && raw.every((x) => typeof x === 'string')) {
+    return [...new Set(raw.map((s) => s.trim()).filter(Boolean))];
+  }
+  if (typeof raw === 'string') {
+    if (raw === 'All' || !raw.trim()) return [];
+    return [raw.trim()];
+  }
+  return [];
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getTimeRemaining = (lead: Lead): string => {
@@ -201,7 +214,9 @@ export default function Leads() {
   const [searchTerm,   setSearchTerm]  = useState(querySearch ?? savedFilters.searchTerm ?? '');
   const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? 'All');
   const [levelFilter,  setLevelFilter]  = useState(savedFilters.levelFilter ?? 'All');
-  const [projectFilter, setProjectFilter] = useState(savedFilters.projectFilter ?? 'All');
+  const [projectFilter, setProjectFilter] = useState<string[]>(() =>
+    normalizeSavedProjectFilter(savedFilters.projectFilter)
+  );
   const [assigneeFilter, setAssigneeFilter] = useState(savedFilters.assigneeFilter ?? 'All');
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>(savedFilters.dumpFilter ?? 'Active');
   /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
@@ -460,7 +475,7 @@ export default function Leads() {
       // Clear filters so the new lead is visible (new leads are usually "New" status)
       setStatusFilter('All');
       setLevelFilter('All');
-      setProjectFilter('All');
+      setProjectFilter([]);
       setAssigneeFilter('All');
       setSearchTerm('');
       setDateFilterField('none');
@@ -818,7 +833,8 @@ export default function Leads() {
         || (lead.campaignName ?? '').toLowerCase().includes(q);
       const matchesStatus   = statusFilter   === 'All' || lead.status         === statusFilter;
       const matchesLevel    = levelFilter    === 'All' || lead.leadLevel       === levelFilter;
-      const matchesProject  = projectFilter  === 'All' || lead.project         === projectFilter;
+      const matchesProject =
+        projectFilter.length === 0 || projectFilter.includes(lead.project);
       const matchesAssignee = assigneeFilter === 'All'
         || (assigneeFilter === '__unassigned__' ? !lead.assignedUserId : lead.assignedUserId === assigneeFilter);
       const isDumpView = DUMP_VIEW_STATUSES.has(lead.status);
@@ -877,6 +893,16 @@ export default function Leads() {
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }, [leads]);
 
+  const projectFilterLabel = useMemo(() => {
+    const n = projectFilter.length;
+    if (n === 0) return 'All projects';
+    if (n === 1) {
+      const s = projectFilter[0];
+      return s.length > 32 ? `${s.slice(0, 30)}…` : s;
+    }
+    return `${n} projects selected`;
+  }, [projectFilter]);
+
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       let aVal: string | number = '';
@@ -894,7 +920,7 @@ export default function Leads() {
   const anyFilter =
     statusFilter !== 'All' ||
     levelFilter !== 'All' ||
-    projectFilter !== 'All' ||
+    projectFilter.length > 0 ||
     assigneeFilter !== 'All' ||
     dumpFilter !== 'Active' ||
     duplicateFilter !== 'All' ||
@@ -1110,18 +1136,58 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
-            <Select value={projectFilter} onValueChange={setProjectFilter}>
-              <SelectTrigger className="h-8 text-xs w-[180px] border-slate-200 bg-slate-50">
-                <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
-                <SelectValue placeholder="All Projects" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All Projects</SelectItem>
-                {projectFilterOptions.map(project => (
-                  <SelectItem key={project} value={project}>{project}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,220px)] min-w-[180px] max-w-[280px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <Filter className="w-3 h-3 shrink-0 text-slate-400" />
+                  <span className="truncate text-left">{projectFilterLabel}</span>
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[min(100vw-2rem,22rem)] max-h-[min(70vh,20rem)] overflow-y-auto">
+                <DropdownMenuLabel className="text-xs font-normal text-slate-500">
+                  Projects — select multiple
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-xs"
+                  onClick={() => setProjectFilter([])}
+                >
+                  Clear selection (all projects)
+                </DropdownMenuItem>
+                {projectFilterOptions.length > 0 && (
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onClick={() => setProjectFilter([...projectFilterOptions])}
+                  >
+                    Select all listed
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                {projectFilterOptions.length === 0 ? (
+                  <div className="px-2 py-3 text-center text-xs text-slate-400">No projects in current list</div>
+                ) : (
+                  projectFilterOptions.map((project) => (
+                    <DropdownMenuCheckboxItem
+                      key={project}
+                      checked={projectFilter.includes(project)}
+                      onCheckedChange={(checked) => {
+                        setProjectFilter((prev) => {
+                          if (checked) {
+                            return prev.includes(project) ? prev : [...prev, project];
+                          }
+                          return prev.filter((p) => p !== project);
+                        });
+                      }}
+                      className="text-xs"
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      <span className="line-clamp-3 break-words pr-1">{project}</span>
+                    </DropdownMenuCheckboxItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {(seesFullLeadDirectory || isManager) && (
               <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
@@ -1202,7 +1268,7 @@ export default function Leads() {
                 onClick={() => {
                   setStatusFilter('All');
                   setLevelFilter('All');
-                  setProjectFilter('All');
+                  setProjectFilter([]);
                   setAssigneeFilter('All');
                   setDumpFilter('Active');
                   setDuplicateFilter('All');

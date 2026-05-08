@@ -4,7 +4,6 @@
  * Every CHECK_INTERVAL_MS:
  *   Fetches leads and enforces assignment-expiry rules:
  *   - "New" + no status update + deadline passed => unassign/rotate (per Business Settings)
- *   - "Not Interested" + unchanged past its own timeout => unassign
  *   Per Settings → Business:
  *     - **Unassign** (default): clears assignee so the lead returns to the pool.
  *     - **Rotate**: if Lead Rotation is enabled for that project, assigns the next user in queue.
@@ -15,9 +14,7 @@ import {
   fetchLeads,
   assignLead,
   shouldAutoRotateAfterAssignmentTimer,
-  shouldAutoUnassignNotInterestedLead,
   getAssignmentExpiryAction,
-  isAssignmentAutoReleasePaused,
 } from '@/src/services/leadsService';
 import {
   loadLeadRotationConfig,
@@ -40,8 +37,6 @@ export function useAutoRotateExpiredLeads() {
     if (!isAdmin) return;
 
     const run = async () => {
-      if (isAssignmentAutoReleasePaused()) return;
-
       let leads: Awaited<ReturnType<typeof fetchLeads>>;
       try {
         leads = await fetchLeads();
@@ -49,30 +44,13 @@ export function useAutoRotateExpiredLeads() {
         return;
       }
 
-      const expiredNewStatus = leads.filter(shouldAutoRotateAfterAssignmentTimer);
-      const expiredNotInterested = leads.filter(shouldAutoUnassignNotInterestedLead);
-      const expiredNotInterestedIds = new Set(expiredNotInterested.map((l) => l.id));
-      const expired = expiredNewStatus.filter((l) => !expiredNotInterestedIds.has(l.id));
-      if (expired.length === 0 && expiredNotInterested.length === 0) return;
+      const expired = leads.filter(shouldAutoRotateAfterAssignmentTimer);
+      if (expired.length === 0) return;
 
       const action = getAssignmentExpiryAction();
       const byId = new Map<string, AppUser>(allUsersRef.current.map((u) => [u.id, u]));
       let unassignedCount = 0;
       let reassignedCount = 0;
-
-      for (const lead of expiredNotInterested) {
-        try {
-          await assignLead(
-            lead.id,
-            '',
-            currentUser?.name || 'System',
-            'Auto-unassigned: status "Not Interested" remained unchanged past deadline',
-          );
-          unassignedCount += 1;
-        } catch {
-          // Retry next interval
-        }
-      }
 
       for (const lead of expired) {
         if (action === 'unassign') {

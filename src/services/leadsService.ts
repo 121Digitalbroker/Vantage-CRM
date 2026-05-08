@@ -301,8 +301,6 @@ function mapStatusHistoryRow(row: Record<string, unknown>): StatusHistory {
 
 const LS_ASSIGNMENT_HOURS = 'crm_assignment_inactivity_hours';
 const LS_ASSIGNMENT_MINUTES_LEGACY = 'crm_assignment_timer_minutes';
-const LS_NOT_INTERESTED_UNASSIGN_HOURS = 'crm_not_interested_unassign_hours';
-const LS_ASSIGNMENT_AUTO_RELEASE_PAUSED = 'crm_assignment_auto_release_paused';
 
 function clampAssignmentHours(h: number): number {
   const min = 1 / 60; // 1 minute
@@ -329,32 +327,12 @@ export function getAssignmentInactivityHours(): number {
   return 1;
 }
 
-/**
- * Hours to keep a lead assigned when status is "Not Interested" before auto-unassigning.
- * Defaults to 24 hours.
- */
-export function getNotInterestedUnassignHours(): number {
-  if (typeof localStorage === 'undefined') return 24;
-  const raw = localStorage.getItem(LS_NOT_INTERESTED_UNASSIGN_HOURS);
-  if (raw != null && raw !== '') {
-    const h = parseFloat(raw);
-    if (Number.isFinite(h) && h > 0) return clampAssignmentHours(h);
-  }
-  return 24;
-}
-
 export type AssignmentExpiryAction = 'unassign' | 'rotate';
 
 /** When the assignment timer expires and the lead is still "New", unassign or hand to rotation queue. */
 export function getAssignmentExpiryAction(): AssignmentExpiryAction {
   if (typeof localStorage === 'undefined') return 'unassign';
   return localStorage.getItem('crm_assignment_expiry_action') === 'rotate' ? 'rotate' : 'unassign';
-}
-
-/** Global pause toggle for assignment auto-release worker. */
-export function isAssignmentAutoReleasePaused(): boolean {
-  if (typeof localStorage === 'undefined') return false;
-  return localStorage.getItem(LS_ASSIGNMENT_AUTO_RELEASE_PAUSED) === 'true';
 }
 
 /** Assign a lead to a telecaller, or clear assignment when `userId` is empty. */
@@ -844,24 +822,6 @@ export function isInNewStatusAssignmentRotationWindow(lead: Lead): boolean {
 /** Expired assignment timer and still New — eligible for round-robin handoff. */
 export function shouldAutoRotateAfterAssignmentTimer(lead: Lead): boolean {
   return isInNewStatusAssignmentRotationWindow(lead) && isAssignmentExpired(lead);
-}
-
-/**
- * Status-specific timeout: if a lead remains "Not Interested" for too long, auto-unassign.
- */
-export function shouldAutoUnassignNotInterestedLead(lead: Lead): boolean {
-  if (!lead.assignedUserId?.trim()) return false;
-  if (lead.status !== 'Not Interested') return false;
-
-  const anchorIso = lead.lastStatusUpdate ?? lead.assignedAt;
-  if (!anchorIso) return false;
-
-  const anchor = new Date(anchorIso);
-  if (Number.isNaN(anchor.getTime())) return false;
-
-  const hours = getNotInterestedUnassignHours();
-  const expiresAt = new Date(anchor.getTime() + hours * 60 * 60 * 1000);
-  return new Date() > expiresAt;
 }
 
 /**

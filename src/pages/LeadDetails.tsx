@@ -670,7 +670,9 @@ export default function LeadDetails() {
                             </div>
                             <p className="text-xs text-slate-500">
                               Assigned by <span className="font-medium">{getUserName(record.assignedBy)}</span>
-                              {record.reason && ` • ${record.reason}`}
+                              {record.reason && !record.reason.toLowerCase().startsWith('auto-unassigned')
+                                ? ` • ${record.reason}`
+                                : ''}
                             </p>
                             <p className="text-xs text-slate-400 mt-1">
                               {format(parseISO(record.createdAt), 'MMM d, yyyy h:mm a')}

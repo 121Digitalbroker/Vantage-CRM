@@ -1428,6 +1428,13 @@ export default function Leads() {
                                 ))}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
+                                  className={`text-xs cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50 ${lead.status === 'Not Interested' ? 'font-semibold' : ''}`}
+                                  onClick={() => handleStatusChange(lead.id, 'Not Interested')}
+                                >
+                                  Rejected
+                                  {lead.status === 'Not Interested' && <span className="ml-auto text-red-500">✓</span>}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   className="text-xs cursor-pointer text-slate-600"
                                   disabled={!lead.assignedUserId?.trim()}
                                   onClick={() => handleAssign(lead.id, '')}

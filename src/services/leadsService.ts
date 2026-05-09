@@ -346,10 +346,6 @@ export async function assignLead(
   const previousUserId = currentLead?.assignedUserId || '';
   const isUnassign = !userId?.trim();
 
-  const hours = getAssignmentInactivityHours();
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + hours * 60 * 60 * 1000);
-
   const assignmentUpdate: Partial<Lead> = isUnassign
     ? {
         assignedUserId: '',
@@ -359,8 +355,9 @@ export async function assignLead(
       }
     : {
         assignedUserId: userId,
-        assignedAt: now.toISOString(),
-        assignmentExpiresAt: expiresAt.toISOString(),
+        // Auto-unassign timer feature removed: keep timer fields cleared.
+        assignedAt: undefined,
+        assignmentExpiresAt: undefined,
         lastStatusUpdate: undefined,
       };
 
@@ -381,8 +378,8 @@ export async function assignLead(
             }
           : {
               assigned_to: userId,
-              assigned_at: assignmentUpdate.assignedAt,
-              assignment_expires_at: assignmentUpdate.assignmentExpiresAt,
+              assigned_at: null,
+              assignment_expires_at: null,
               last_status_update: null,
             }
       )
@@ -821,7 +818,8 @@ export function isInNewStatusAssignmentRotationWindow(lead: Lead): boolean {
 
 /** Expired assignment timer and still New — eligible for round-robin handoff. */
 export function shouldAutoRotateAfterAssignmentTimer(lead: Lead): boolean {
-  return isInNewStatusAssignmentRotationWindow(lead) && isAssignmentExpired(lead);
+  void lead;
+  return false;
 }
 
 /**

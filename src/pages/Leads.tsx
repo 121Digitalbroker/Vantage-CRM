@@ -835,8 +835,13 @@ export default function Leads() {
       const matchesLevel    = levelFilter    === 'All' || lead.leadLevel       === levelFilter;
       const matchesProject =
         projectFilter.length === 0 || projectFilter.includes(lead.project);
-      const matchesAssignee = assigneeFilter === 'All'
-        || (assigneeFilter === '__unassigned__' ? !lead.assignedUserId : lead.assignedUserId === assigneeFilter);
+      const matchesAssignee =
+        assigneeFilter === 'All'
+        || (assigneeFilter === '__unassigned__'
+          ? !lead.assignedUserId
+          : assigneeFilter === '__rejected__'
+            ? lead.status === 'Not Interested'
+            : lead.assignedUserId === assigneeFilter);
       const isDumpView = DUMP_VIEW_STATUSES.has(lead.status);
       const isJunkDump = DUMP_STATUSES.has(lead.status);
       const inDumpGrace =
@@ -1198,6 +1203,7 @@ export default function Leads() {
                 <SelectContent>
                   <SelectItem value="All">All Assignees</SelectItem>
                   <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                  <SelectItem value="__rejected__">Rejected</SelectItem>
                   {assigneePickerUsers.map(u => (
                     <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                   ))}

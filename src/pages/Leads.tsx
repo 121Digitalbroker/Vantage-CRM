@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { obfuscatePhoneNumber, triggerCall } from '@/src/utils/phoneUtils';
 import { format, isPast, isToday, parseISO, formatDistanceToNow, parse, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -80,7 +81,7 @@ function farFutureFollowUpIso(): string {
 }
 
 type SortField = 'createdAt' | 'followUpDate' | 'leadLevel' | 'status' | 'assignedUserId';
-type SortDir   = 'asc' | 'desc';
+type SortDir = 'asc' | 'desc';
 const LEVEL_ORDER: Record<LeadLevel, number> = { Hot: 0, Warm: 1, Cold: 2 };
 
 function normalizeSavedProjectFilter(raw: unknown): string[] {
@@ -97,24 +98,24 @@ function normalizeSavedProjectFilter(raw: unknown): string[] {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getTimeRemaining = (lead: Lead): string => {
   if (!lead.assignmentExpiresAt || !lead.assignedUserId || lead.lastStatusUpdate) return '';
-  
+
   const now = new Date();
   const expires = new Date(lead.assignmentExpiresAt);
   const diff = expires.getTime() - now.getTime();
-  
+
   if (diff <= 0) return 'EXPIRED';
-  
+
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  
+
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
 };
 
 const getLevelColors = (level: LeadLevel) => {
   switch (level) {
-    case 'Hot':  return 'bg-red-100 text-red-600 border-red-200';
+    case 'Hot': return 'bg-red-100 text-red-600 border-red-200';
     case 'Warm': return 'bg-amber-100 text-amber-600 border-amber-200';
     case 'Cold': return 'bg-blue-100 text-blue-500 border-blue-200';
   }
@@ -122,16 +123,16 @@ const getLevelColors = (level: LeadLevel) => {
 
 const getStatusColors = (status: LeadStatus) => {
   switch (status) {
-    case 'New':                  return 'bg-blue-100 text-blue-700';
-    case 'Interested':           return 'bg-purple-100 text-purple-700';
+    case 'New': return 'bg-blue-100 text-blue-700';
+    case 'Interested': return 'bg-purple-100 text-purple-700';
     case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-700';
-    case 'Busy':                 return 'bg-amber-100 text-amber-800';
-    case 'Not Reachable':        return 'bg-slate-200 text-slate-700';
-    case 'Fake Query':           return 'bg-rose-100 text-rose-800';
-    case 'Not Interested':       return 'bg-red-100 text-red-700';
-    case 'Wrong Number':         return 'bg-gray-100 text-gray-600';
-    case 'Low Budget':           return 'bg-yellow-100 text-yellow-700';
-    default:                     return 'bg-gray-100 text-gray-700';
+    case 'Busy': return 'bg-amber-100 text-amber-800';
+    case 'Not Reachable': return 'bg-slate-200 text-slate-700';
+    case 'Fake Query': return 'bg-rose-100 text-rose-800';
+    case 'Not Interested': return 'bg-red-100 text-red-700';
+    case 'Wrong Number': return 'bg-gray-100 text-gray-600';
+    case 'Low Budget': return 'bg-yellow-100 text-yellow-700';
+    default: return 'bg-gray-100 text-gray-700';
   }
 };
 
@@ -139,19 +140,19 @@ const getFollowUpPriority = (dateStr: string) => {
   try {
     const date = parseISO(dateStr);
     if (isToday(date)) return { colors: 'bg-orange-100 text-orange-600 border-orange-200', label: 'Today' };
-    if (isPast(date))  return { colors: 'bg-red-100 text-red-600 border-red-200',          label: 'Overdue' };
+    if (isPast(date)) return { colors: 'bg-red-100 text-red-600 border-red-200', label: 'Overdue' };
   } catch { /* ignore */ }
   return { colors: 'bg-green-100 text-green-600 border-green-200', label: 'Upcoming' };
 };
 
 const getSourceLabel = (source: string) => {
   switch (source) {
-    case 'Meta Ads':   return 'bg-blue-50 text-blue-600 border-blue-200';
+    case 'Meta Ads': return 'bg-blue-50 text-blue-600 border-blue-200';
     case 'Google Ads': return 'bg-red-50 text-red-600 border-red-200';
-    case 'Website':    return 'bg-slate-100 text-slate-600 border-slate-200';
-    case 'Referral':   return 'bg-green-50 text-green-600 border-green-200';
+    case 'Website': return 'bg-slate-100 text-slate-600 border-slate-200';
+    case 'Referral': return 'bg-green-50 text-green-600 border-green-200';
     case 'Salesperson': return 'bg-purple-50 text-purple-600 border-purple-200';
-    default:           return 'bg-gray-100 text-gray-600 border-gray-200';
+    default: return 'bg-gray-100 text-gray-600 border-gray-200';
   }
 };
 
@@ -185,7 +186,7 @@ const blankLeadForm = () => ({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function Leads() {
-  const navigate  = useNavigate();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { currentUser, telecallers, allUsers, isAdmin, isManager, isDigitalMarketer, managedUsers } = useRole();
   /** Full org directory (every lead): Admin, Digital Marketer, General Manager only — not Manager1. */
@@ -208,12 +209,12 @@ export default function Leads() {
   const savedFilters = readSavedFilters();
   const querySearch = searchParams.get('q');
 
-  const [leads,        setLeads]       = useState<Lead[]>([]);
-  const [loading,      setLoading]     = useState(true);
-  const [error,        setError]       = useState<string | null>(null);
-  const [searchTerm,   setSearchTerm]  = useState(querySearch ?? savedFilters.searchTerm ?? '');
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState(querySearch ?? savedFilters.searchTerm ?? '');
   const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? 'All');
-  const [levelFilter,  setLevelFilter]  = useState(savedFilters.levelFilter ?? 'All');
+  const [levelFilter, setLevelFilter] = useState(savedFilters.levelFilter ?? 'All');
   const [projectFilter, setProjectFilter] = useState<string[]>(() =>
     normalizeSavedProjectFilter(savedFilters.projectFilter)
   );
@@ -226,22 +227,22 @@ export default function Leads() {
   const [dateFromStr, setDateFromStr] = useState(savedFilters.dateFromStr ?? '');
   const [dateToStr, setDateToStr] = useState(savedFilters.dateToStr ?? '');
   const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>(savedFilters.duplicateFilter ?? 'All');
-  const [sortField,    setSortField]   = useState<SortField>('createdAt');
-  const [sortDir,      setSortDir]     = useState<SortDir>('desc');
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // ── Dialog state ──────────────────────────────────────────────────────────
-  const [addOpen, setAddOpen]           = useState(false);
-  const [editOpen, setEditOpen]         = useState(false);
-  const [noteOpen, setNoteOpen]         = useState(false);
-  const [fuOpen, setFuOpen]             = useState(false);
-  const [importOpen, setImportOpen]     = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [fuOpen, setFuOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
-  const [targetLead, setTargetLead]     = useState<Lead | null>(null);
-  const [formData, setFormData]         = useState(blankLeadForm());
-  const [noteText, setNoteText]         = useState('');
-  const [fuData, setFuData]             = useState({ type: 'Call', date: '', notes: '' });
-  const [saving, setSaving]             = useState(false);
-  const [viewMode, setViewMode]         = useState<'table' | 'pipeline'>(savedFilters.viewMode ?? 'table');
+  const [targetLead, setTargetLead] = useState<Lead | null>(null);
+  const [formData, setFormData] = useState(blankLeadForm());
+  const [noteText, setNoteText] = useState('');
+  const [fuData, setFuData] = useState({ type: 'Call', date: '', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'pipeline'>(savedFilters.viewMode ?? 'table');
   const assigneeUsers = useMemo(
     () => allUsers.filter(u => u.status === 'Active' && (u.role === 'Telecaller' || isManagerKindRole(u.role))),
     [allUsers]
@@ -346,7 +347,7 @@ export default function Leads() {
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-30" />;
     return sortDir === 'asc'
-      ? <ArrowUp   className="w-3 h-3 ml-1 text-blue-500" />
+      ? <ArrowUp className="w-3 h-3 ml-1 text-blue-500" />
       : <ArrowDown className="w-3 h-3 ml-1 text-blue-500" />;
   };
 
@@ -721,31 +722,31 @@ export default function Leads() {
         const newLead = await createLeadWithDate({
           clientName,
           phoneNumber: phone,
-          email:         data['email']?.trim()    || undefined,
-          project:       (data['form_name'] || data['project'] || '').trim(),
-          leadSource:    data['platform'] || data['lead source'] || data['source'] || 'Meta Ads',
+          email: data['email']?.trim() || undefined,
+          project: (data['form_name'] || data['project'] || '').trim(),
+          leadSource: data['platform'] || data['lead source'] || data['source'] || 'Meta Ads',
           // Full campaign tracking
-          campaignName: (data['campaign_name'] || data['campaign name'])?.trim()  || undefined,
-          campaignId:   data['campaign_id']?.trim()    || undefined,
-          adsetName:    (data['adset_name'] || data['adset name'])?.trim()     || undefined,
-          adsetId:      data['adset_id']?.trim()       || undefined,
-          adName:       (data['ad_name'] || data['ad name'])?.trim()        || undefined,
-          adId:         data['ad_id']?.trim()          || undefined,
-          formName:     data['form_name']?.trim()      || undefined,
-          formId:       data['form_id']?.trim()        || undefined,
-          isOrganic:    data['is_organic']?.toLowerCase() === 'true',
+          campaignName: (data['campaign_name'] || data['campaign name'])?.trim() || undefined,
+          campaignId: data['campaign_id']?.trim() || undefined,
+          adsetName: (data['adset_name'] || data['adset name'])?.trim() || undefined,
+          adsetId: data['adset_id']?.trim() || undefined,
+          adName: (data['ad_name'] || data['ad name'])?.trim() || undefined,
+          adId: data['ad_id']?.trim() || undefined,
+          formName: data['form_name']?.trim() || undefined,
+          formId: data['form_id']?.trim() || undefined,
+          isOrganic: data['is_organic']?.toLowerCase() === 'true',
           // Lead qualification
-          city:               data['city']?.trim()                                  || undefined,
-          bestTimeToContact:  data['what_is_the_best_time_to_contact_you?']?.trim() || undefined,
-          planningToBuy:      data['when_are_you_planning_to_buy?']?.trim()          || undefined,
-          investmentBudget:  (data['investment budget'] || data['your_investment_budget?'] || 'Not Specified') as InvestmentBudget,
-          facebookLeadId:     fbLeadId,
+          city: data['city']?.trim() || undefined,
+          bestTimeToContact: data['what_is_the_best_time_to_contact_you?']?.trim() || undefined,
+          planningToBuy: data['when_are_you_planning_to_buy?']?.trim() || undefined,
+          investmentBudget: (data['investment budget'] || data['your_investment_budget?'] || 'Not Specified') as InvestmentBudget,
+          facebookLeadId: fbLeadId,
           // Defaults
           // Telecaller imports are auto-assigned to the importing telecaller.
           assignedUserId: seesFullLeadDirectory ? '' : currentUser.id,
-          leadLevel:      'Warm'  as LeadLevel,
-          status:         importedStatus,
-          followUpDate:   followUpIso,
+          leadLevel: 'Warm' as LeadLevel,
+          status: importedStatus,
+          followUpDate: followUpIso,
           createdAt,
         });
         if (importedNote) {
@@ -761,10 +762,10 @@ export default function Leads() {
       const parts: string[] = [];
       if (importedLeads.length > 0) parts.push(`✅ ${importedLeads.length} leads imported`);
       if (!seesFullLeadDirectory && importedLeads.length > 0) parts.push('👤 Assigned to you automatically by CRM');
-      if (mergedDuplicates > 0)      parts.push(`🔁 ${mergedDuplicates} duplicate rows merged into existing leads`);
-      if (notesAdded > 0)            parts.push(`📝 ${notesAdded} notes added from CSV`);
-      if (skippedDuplicates > 0)    parts.push(`⚠️ ${skippedDuplicates} duplicates skipped`);
-      if (skippedInvalid > 0)       parts.push(`❌ ${skippedInvalid} invalid rows skipped`);
+      if (mergedDuplicates > 0) parts.push(`🔁 ${mergedDuplicates} duplicate rows merged into existing leads`);
+      if (notesAdded > 0) parts.push(`📝 ${notesAdded} notes added from CSV`);
+      if (skippedDuplicates > 0) parts.push(`⚠️ ${skippedDuplicates} duplicates skipped`);
+      if (skippedInvalid > 0) parts.push(`❌ ${skippedInvalid} invalid rows skipped`);
       toast.success(parts.join(' · ') || 'No new leads found');
     } catch (err) {
       console.error('Import error:', err);
@@ -831,8 +832,8 @@ export default function Leads() {
         || lead.phoneNumber.includes(q)
         || lead.project.toLowerCase().includes(q)
         || (lead.campaignName ?? '').toLowerCase().includes(q);
-      const matchesStatus   = statusFilter   === 'All' || lead.status         === statusFilter;
-      const matchesLevel    = levelFilter    === 'All' || lead.leadLevel       === levelFilter;
+      const matchesStatus = statusFilter === 'All' || lead.status === statusFilter;
+      const matchesLevel = levelFilter === 'All' || lead.leadLevel === levelFilter;
       const matchesProject =
         projectFilter.length === 0 || projectFilter.includes(lead.project);
       const matchesAssignee =
@@ -912,12 +913,12 @@ export default function Leads() {
     return [...filtered].sort((a, b) => {
       let aVal: string | number = '';
       let bVal: string | number = '';
-      if      (sortField === 'leadLevel')      { aVal = LEVEL_ORDER[a.leadLevel]; bVal = LEVEL_ORDER[b.leadLevel]; }
-      else if (sortField === 'status')         { aVal = a.status; bVal = b.status; }
+      if (sortField === 'leadLevel') { aVal = LEVEL_ORDER[a.leadLevel]; bVal = LEVEL_ORDER[b.leadLevel]; }
+      else if (sortField === 'status') { aVal = a.status; bVal = b.status; }
       else if (sortField === 'assignedUserId') { aVal = getUserName(a.assignedUserId); bVal = getUserName(b.assignedUserId); }
-      else                                     { aVal = a[sortField] ?? ''; bVal = b[sortField] ?? ''; }
+      else { aVal = a[sortField] ?? ''; bVal = b[sortField] ?? ''; }
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDir === 'asc' ?  1 : -1;
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
   }, [filtered, sortField, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1067,9 +1068,9 @@ export default function Leads() {
           )}
           {(isAdmin || currentUser?.role === 'Manager') && (
             <Button className="bg-blue-500 text-white hover:bg-blue-600 h-9" onClick={openAddDialog}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Lead
-          </Button>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Lead
+            </Button>
           )}
         </div>
       </div>
@@ -1119,18 +1120,18 @@ export default function Leads() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="h-8 text-xs w-[160px] border-slate-200 bg-slate-50">
                 <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
                 <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Statuses</SelectItem>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Statuses</SelectItem>
                 {LEAD_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              
-              <Select value={levelFilter} onValueChange={setLevelFilter}>
+              </SelectContent>
+            </Select>
+
+            <Select value={levelFilter} onValueChange={setLevelFilter}>
               <SelectTrigger className="h-8 text-xs w-[130px] border-slate-200 bg-slate-50">
                 <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
                 <SelectValue placeholder="All Levels" />
@@ -1380,10 +1381,16 @@ export default function Leads() {
                       </TableCell>
 
                       <TableCell className="px-4 py-3">
-                        <a href={`tel:${lead.phoneNumber}`} className="flex items-center gap-1.5 text-slate-600 hover:text-blue-600 transition-colors">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerCall(lead.phoneNumber);
+                          }}
+                          className="flex items-center gap-1.5 text-slate-600 hover:text-blue-600 transition-colors bg-transparent border-0 p-0 cursor-pointer"
+                        >
                           <Phone className="w-3 h-3 shrink-0" />
-                          <span className="text-xs">{lead.phoneNumber || '—'}</span>
-                        </a>
+                          <span className="text-xs">{obfuscatePhoneNumber(lead.phoneNumber) || '—'}</span>
+                        </button>
                       </TableCell>
 
                       <TableCell className="px-4 py-3">
@@ -1403,7 +1410,7 @@ export default function Leads() {
                         <span className="inline-block text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">
                           {lead.investmentBudget || 'Not Specified'}
                         </span>
-                    </TableCell>
+                      </TableCell>
 
                       {canSeeLeadAssignments && (
                         <TableCell className="px-4 py-3">
@@ -1449,15 +1456,15 @@ export default function Leads() {
                               </span>
                             )}
                           </div>
-                    </TableCell>
+                        </TableCell>
                       )}
 
                       <TableCell className="px-4 py-3">
                         <DropdownMenu>
                           <DropdownMenuTrigger className="inline-flex border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full cursor-pointer">
                             <Badge variant="secondary" className={`rounded-full text-[0.65rem] font-bold uppercase px-2 py-0.5 border hover:opacity-80 transition-opacity shadow-none ${getLevelColors(lead.leadLevel)}`}>
-                        {lead.leadLevel}
-                      </Badge>
+                              {lead.leadLevel}
+                            </Badge>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start" className="w-[110px]">
                             <DropdownMenuLabel className="text-xs text-slate-500">Set level</DropdownMenuLabel>
@@ -1474,14 +1481,14 @@ export default function Leads() {
                             ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                    </TableCell>
+                      </TableCell>
 
                       <TableCell className="px-4 py-3">
                         <DropdownMenu>
                           <DropdownMenuTrigger className="inline-flex border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full cursor-pointer max-w-full">
                             <Badge variant="secondary" className={`rounded-full text-[0.65rem] font-semibold px-2 py-0.5 hover:opacity-80 border-none shadow-none whitespace-nowrap pointer-events-none ${getStatusColors(lead.status)}`}>
-                        {lead.status}
-                      </Badge>
+                              {lead.status}
+                            </Badge>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start" className="w-[190px]">
                             <DropdownMenuLabel className="text-xs text-slate-500">Update status</DropdownMenuLabel>
@@ -1517,14 +1524,14 @@ export default function Leads() {
                             {(() => { try { return format(parseISO(lead.followUpDate), 'h:mm a'); } catch { return ''; } })()}
                           </div>
                         </button>
-                    </TableCell>
+                      </TableCell>
 
                       <TableCell className="px-4 py-3">
                         {lead.lastContactedAt ? (
                           <div>
                             <div className="text-xs text-slate-700">{format(parseISO(lead.lastContactedAt), 'MMM d, yyyy')}</div>
                             <div className="text-[0.68rem] text-slate-400 mt-0.5">{formatDistanceToNow(parseISO(lead.lastContactedAt), { addSuffix: true })}</div>
-                      </div>
+                          </div>
                         ) : <span className="text-xs text-slate-400 italic">Never</span>}
                       </TableCell>
 
@@ -1533,17 +1540,17 @@ export default function Leads() {
                           <div className="text-xs font-semibold text-slate-800">{format(parseISO(lead.createdAt), 'MMM d, yyyy')}</div>
                           <div className="text-[0.68rem] text-slate-500">{format(parseISO(lead.createdAt), 'h:mm a')}</div>
                           <div className="text-[0.65rem] font-medium text-blue-600 mt-1">{formatDistanceToNow(parseISO(lead.createdAt), { addSuffix: true })}</div>
-                      </div>
-                    </TableCell>
+                        </div>
+                      </TableCell>
 
                       <TableCell className="px-4 py-3 text-right">
-                      <DropdownMenu>
+                        <DropdownMenu>
                           <DropdownMenuTrigger
                             aria-label="Row actions"
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent hover:bg-muted text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                           >
                             <MoreHorizontal className="h-4 w-4" />
-                        </DropdownMenuTrigger>
+                          </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[175px]">
                             <DropdownMenuLabel className="text-xs text-slate-500">Actions</DropdownMenuLabel>
                             <DropdownMenuSeparator />
@@ -1556,36 +1563,36 @@ export default function Leads() {
                             {canSeeLeadAssignments && (
                               <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openEditDialog(lead)}>
                                 <UserPlus className="w-3.5 h-3.5 mr-2 text-slate-500" />Assign Lead
-                          </DropdownMenuItem>
+                              </DropdownMenuItem>
                             )}
                             <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openFuDialog(lead)}>
                               <CalendarPlus className="w-3.5 h-3.5 mr-2 text-slate-500" />Add Follow-up
-                          </DropdownMenuItem>
+                            </DropdownMenuItem>
                             <DropdownMenuItem className="cursor-pointer text-xs" onClick={() => openNoteDialog(lead)}>
                               <MessageSquarePlus className="w-3.5 h-3.5 mr-2 text-slate-500" />Add Note
-                          </DropdownMenuItem>
+                            </DropdownMenuItem>
                             {isAdmin && (
                               <>
-                          <DropdownMenuSeparator />
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   className="cursor-pointer text-xs text-red-600 focus:text-red-600 focus:bg-red-50"
                                   onClick={() => handleDelete(lead.id, lead.clientName)}
                                 >
                                   <Trash2 className="w-3.5 h-3.5 mr-2" />Delete Lead
-                          </DropdownMenuItem>
+                                </DropdownMenuItem>
                               </>
                             )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
                   );
                 })
               )}
             </TableBody>
           </Table>
         </div>
-        
+
         <div className="flex items-center justify-between text-xs text-slate-500 px-4 py-3 border-t border-slate-200">
           <div>
             Showing {sorted.length} of {leads.length} leads
@@ -1718,11 +1725,11 @@ export default function Leads() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-xs font-medium text-blue-900 mb-2">📋 Supported CSV Formats:</p>
               <p className="text-xs text-blue-800">
-                <strong>Facebook Leads Format:</strong> full_name, phone_number, email, ad_name, adset_name, campaign_name, platform<br/>
-                <strong>Custom Format:</strong> Client Name, Phone, Email, Project, Lead Source, Campaign, Level, Status<br/>
+                <strong>Facebook Leads Format:</strong> full_name, phone_number, email, ad_name, adset_name, campaign_name, platform<br />
+                <strong>Custom Format:</strong> Client Name, Phone, Email, Project, Lead Source, Campaign, Level, Status<br />
                 <strong>Note:</strong> Supports both comma and tab-delimited files
               </p>
             </div>
@@ -1737,8 +1744,8 @@ export default function Leads() {
                 className="cursor-pointer"
                 disabled={saving}
               />
-        </div>
-      </div>
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setImportOpen(false)} disabled={saving}>
               Cancel

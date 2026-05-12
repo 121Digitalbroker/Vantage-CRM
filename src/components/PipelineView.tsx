@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import { Phone, Flame, ChevronRight, User } from 'lucide-react';
+import { obfuscatePhoneNumber, triggerCall } from '@/src/utils/phoneUtils';
 import {
   DndContext,
   DragEndEvent,
@@ -33,22 +34,22 @@ import { useNavigate } from 'react-router-dom';
 
 // ── Pipeline stages — includes all status options from the dropdown ───────────
 const PIPELINE_STAGES: { id: LeadStatus; label: string; color: string; bg: string; border: string }[] = [
-  { id: 'New',                  label: 'New',               color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
-  { id: 'Interested',           label: 'Interested',        color: 'text-purple-700',  bg: 'bg-purple-50',  border: 'border-purple-200' },
-  { id: 'Site Visit Scheduled', label: 'Site Visit',        color: 'text-cyan-700',    bg: 'bg-cyan-50',    border: 'border-cyan-200' },
-  { id: 'Busy',                 label: 'Busy',              color: 'text-amber-800',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  { id: 'Not Reachable',        label: 'Not Reachable',     color: 'text-slate-700',   bg: 'bg-slate-100',  border: 'border-slate-200' },
-  { id: 'Fake Query',           label: 'Fake Query',        color: 'text-rose-800',    bg: 'bg-rose-50',    border: 'border-rose-200' },
-  { id: 'Not Interested',       label: 'Not Interested',    color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
-  { id: 'Wrong Number',         label: 'Wrong Number',      color: 'text-gray-700',    bg: 'bg-gray-50',    border: 'border-gray-200' },
-  { id: 'Low Budget',           label: 'Low Budget',        color: 'text-yellow-700',  bg: 'bg-yellow-50',  border: 'border-yellow-200' },
+  { id: 'New', label: 'New', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200' },
+  { id: 'Interested', label: 'Interested', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200' },
+  { id: 'Site Visit Scheduled', label: 'Site Visit', color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200' },
+  { id: 'Busy', label: 'Busy', color: 'text-amber-800', bg: 'bg-amber-50', border: 'border-amber-200' },
+  { id: 'Not Reachable', label: 'Not Reachable', color: 'text-slate-700', bg: 'bg-slate-100', border: 'border-slate-200' },
+  { id: 'Fake Query', label: 'Fake Query', color: 'text-rose-800', bg: 'bg-rose-50', border: 'border-rose-200' },
+  { id: 'Not Interested', label: 'Not Interested', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+  { id: 'Wrong Number', label: 'Wrong Number', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },
+  { id: 'Low Budget', label: 'Low Budget', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200' },
 ];
 
 const getLevelDot = (level: string) => {
   switch (level) {
-    case 'Hot':  return 'bg-red-500';
+    case 'Hot': return 'bg-red-500';
     case 'Warm': return 'bg-amber-500';
-    default:     return 'bg-blue-400';
+    default: return 'bg-blue-400';
   }
 };
 
@@ -97,15 +98,16 @@ function LeadCard({ lead, getUserName, isDragging }: LeadCardProps) {
       <p className="text-xs text-slate-500 truncate mb-2">{lead.project}</p>
 
       {/* Phone */}
-      <a
-        href={`tel:${lead.phoneNumber}`}
-        onPointerDown={e => e.stopPropagation()}
-        onClick={e => e.stopPropagation()}
-        className="flex items-center gap-1 text-xs text-blue-600 hover:underline mb-2"
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          triggerCall(lead.phoneNumber);
+        }}
+        className="flex items-center gap-1 text-xs text-blue-600 hover:underline mb-2 bg-transparent border-0 p-0 cursor-pointer"
       >
         <Phone className="w-3 h-3 shrink-0" />
-        <span className="truncate">{lead.phoneNumber}</span>
-      </a>
+        <span className="truncate">{obfuscatePhoneNumber(lead.phoneNumber)}</span>
+      </button>
 
       {/* Footer: assignee + follow-up */}
       <div className="flex items-center justify-between pt-2 border-t border-slate-100">

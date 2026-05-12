@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-import { 
+import { obfuscatePhoneNumber, triggerCall } from '@/src/utils/phoneUtils';
+import {
   ArrowLeft, Phone, Mail, CalendarDays, Clock, MessageSquare,
   CheckCircle2, Flame, RefreshCw, Edit, Save, X, Plus, Trash2, Check, Users, ArrowRight, History,
 } from 'lucide-react';
@@ -30,7 +31,7 @@ const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 
 const getLevelIcon = (level: LeadLevel) => {
   switch (level) {
-    case 'Hot':  return 'text-red-500';
+    case 'Hot': return 'text-red-500';
     case 'Warm': return 'text-amber-500';
     case 'Cold': return 'text-blue-400';
   }
@@ -38,16 +39,16 @@ const getLevelIcon = (level: LeadLevel) => {
 
 const getStatusBadgeColor = (status: LeadStatus) => {
   switch (status) {
-    case 'New':                  return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'Interested':           return 'bg-purple-100 text-purple-800 border-purple-200';
+    case 'New': return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'Interested': return 'bg-purple-100 text-purple-800 border-purple-200';
     case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-800 border-cyan-200';
-    case 'Busy':                 return 'bg-amber-100 text-amber-900 border-amber-200';
-    case 'Not Reachable':        return 'bg-slate-200 text-slate-800 border-slate-300';
-    case 'Fake Query':           return 'bg-rose-100 text-rose-900 border-rose-200';
-    case 'Not Interested':      return 'bg-red-100 text-red-800 border-red-200';
-    case 'Wrong Number':         return 'bg-gray-100 text-gray-800 border-gray-200';
-    case 'Low Budget':            return 'bg-yellow-100 text-yellow-900 border-yellow-200';
-    default:                     return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'Busy': return 'bg-amber-100 text-amber-900 border-amber-200';
+    case 'Not Reachable': return 'bg-slate-200 text-slate-800 border-slate-300';
+    case 'Fake Query': return 'bg-rose-100 text-rose-900 border-rose-200';
+    case 'Not Interested': return 'bg-red-100 text-red-800 border-red-200';
+    case 'Wrong Number': return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'Low Budget': return 'bg-yellow-100 text-yellow-900 border-yellow-200';
+    default: return 'bg-gray-100 text-gray-800 border-gray-200';
   }
 };
 
@@ -249,26 +250,26 @@ export default function LeadDetails() {
                 </>
               ) : (
                 <>
-              <Badge variant="outline" className={`rounded-full text-[0.7rem] font-semibold px-2 ${getStatusBadgeColor(lead.status)}`}>
-                {lead.status}
-              </Badge>
-              <span className="text-sm text-slate-500 flex items-center gap-1 font-medium">
+                  <Badge variant="outline" className={`rounded-full text-[0.7rem] font-semibold px-2 ${getStatusBadgeColor(lead.status)}`}>
+                    {lead.status}
+                  </Badge>
+                  <span className="text-sm text-slate-500 flex items-center gap-1 font-medium">
                     <Flame className={`w-3.5 h-3.5 ${getLevelIcon(lead.leadLevel)}`} />
-                {lead.leadLevel} Lead
-              </span>
+                    {lead.leadLevel} Lead
+                  </span>
                 </>
               )}
             </div>
           </div>
           {!editing && (
-          <div className="flex gap-2">
+            <div className="flex gap-2">
               <Button variant="outline" className="border-slate-200" onClick={() => { setShowFuForm(true); }}>
                 <CalendarDays className="w-4 h-4 mr-2" /> Schedule Follow-up
               </Button>
               <Button className="bg-blue-500 hover:bg-blue-600 text-white" onClick={() => setEditing(true)}>
                 <Edit className="w-4 h-4 mr-2" /> Edit Lead
               </Button>
-          </div>
+            </div>
           )}
         </div>
       </div>
@@ -286,18 +287,21 @@ export default function LeadDetails() {
                   <Phone className="w-4 h-4 text-slate-500" />
                 </div>
                 <div className="overflow-hidden">
-                  <a href={`tel:${lead.phoneNumber}`} className="text-sm font-semibold text-slate-900 truncate hover:text-blue-600 block">
-                    {lead.phoneNumber}
-                  </a>
+                  <button 
+                    onClick={() => { triggerCall(lead.phoneNumber); }}
+                    className="text-sm font-semibold text-slate-900 truncate hover:text-blue-600 block bg-transparent border-0 p-0 cursor-pointer"
+                  >
+                    {obfuscatePhoneNumber(lead.phoneNumber)}
+                  </button>
                   <p className="text-xs text-slate-500">Mobile</p>
                 </div>
               </div>
               {lead.email && (
-              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center bg-slate-50 shrink-0">
-                  <Mail className="w-4 h-4 text-slate-500" />
-                </div>
-                <div className="overflow-hidden">
+                    <Mail className="w-4 h-4 text-slate-500" />
+                  </div>
+                  <div className="overflow-hidden">
                     <a href={`mailto:${lead.email}`} className="text-sm font-semibold text-slate-900 truncate hover:text-blue-600 block">
                       {lead.email}
                     </a>
@@ -433,14 +437,14 @@ export default function LeadDetails() {
                   )}
                 </TabsList>
               </div>
-              
+
               {/* ── Notes tab ──────────────────────────────────────────────── */}
               <TabsContent value="activity" className="flex-1 p-0 m-0">
                 <div className="p-6 border-b border-slate-100 bg-slate-50/50">
                   <h3 className="text-sm font-semibold text-slate-900 mb-2">Add a Note</h3>
                   <div className="space-y-3">
-                    <Textarea 
-                      placeholder="Type your notes here..." 
+                    <Textarea
+                      placeholder="Type your notes here..."
                       className="min-h-[100px] bg-white resize-none border-slate-200 focus-visible:ring-blue-500"
                       value={noteText}
                       onChange={e => setNoteText(e.target.value)}
@@ -582,108 +586,108 @@ export default function LeadDetails() {
 
               {/* ── Status History tab (admin / manager / marketer only) ───── */}
               {showLeadHistoryTabs && (
-              <TabsContent value="status" className="p-6 m-0">
-                <h3 className="font-semibold text-slate-900 mb-4">Status Change History</h3>
-                {statusHistory.length === 0 ? (
-                  <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
-                    <p className="text-sm text-slate-500">No pipeline status changes recorded yet (e.g. New → Busy).</p>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Who the lead is <span className="font-medium text-slate-500">assigned to</span> is tracked separately — open the{' '}
-                      <button
-                        type="button"
-                        className="font-medium text-blue-600 hover:underline"
-                        onClick={() => setLeadDetailTab('history')}
-                      >
-                        Assignment History
-                      </button>{' '}
-                      tab. Older activity from before server-side history was enabled may not appear.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {statusHistory.map((record, idx) => (
-                      <div key={record.id} className="relative border border-slate-200 rounded-lg p-4 bg-white">
-                        {idx < statusHistory.length - 1 && (
-                          <div className="absolute left-8 top-full h-3 w-0.5 bg-slate-200"></div>
-                        )}
-                        <div className="flex gap-3 items-start">
-                          <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center flex-shrink-0">
-                            <History className="w-4 h-4 text-purple-600" />
-                              </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.fromStatus)}`}>
-                                {record.fromStatus}
-                              </Badge>
-                              <ArrowRight className="w-4 h-4 text-slate-400" />
-                              <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.toStatus)}`}>
-                                {record.toStatus}
-                              </Badge>
+                <TabsContent value="status" className="p-6 m-0">
+                  <h3 className="font-semibold text-slate-900 mb-4">Status Change History</h3>
+                  {statusHistory.length === 0 ? (
+                    <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
+                      <p className="text-sm text-slate-500">No pipeline status changes recorded yet (e.g. New → Busy).</p>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Who the lead is <span className="font-medium text-slate-500">assigned to</span> is tracked separately — open the{' '}
+                        <button
+                          type="button"
+                          className="font-medium text-blue-600 hover:underline"
+                          onClick={() => setLeadDetailTab('history')}
+                        >
+                          Assignment History
+                        </button>{' '}
+                        tab. Older activity from before server-side history was enabled may not appear.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {statusHistory.map((record, idx) => (
+                        <div key={record.id} className="relative border border-slate-200 rounded-lg p-4 bg-white">
+                          {idx < statusHistory.length - 1 && (
+                            <div className="absolute left-8 top-full h-3 w-0.5 bg-slate-200"></div>
+                          )}
+                          <div className="flex gap-3 items-start">
+                            <div className="w-8 h-8 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center flex-shrink-0">
+                              <History className="w-4 h-4 text-purple-600" />
                             </div>
-                            <p className="text-xs text-slate-500">
-                              Updated by <span className="font-medium">{record.updatedBy}</span>
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              {format(parseISO(record.createdAt), 'MMM d, yyyy h:mm a')}
-                            </p>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.fromStatus)}`}>
+                                  {record.fromStatus}
+                                </Badge>
+                                <ArrowRight className="w-4 h-4 text-slate-400" />
+                                <Badge variant="outline" className={`rounded-full text-[0.65rem] px-2 ${getStatusBadgeColor(record.toStatus)}`}>
+                                  {record.toStatus}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Updated by <span className="font-medium">{record.updatedBy}</span>
+                              </p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                {format(parseISO(record.createdAt), 'MMM d, yyyy h:mm a')}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
               )}
-              
+
               {/* ── Assignment History tab (admin / manager / marketer only) ─ */}
               {showLeadHistoryTabs && (
-              <TabsContent value="history" className="p-6 m-0">
-                <h3 className="font-semibold text-slate-900 mb-4">Assignment History</h3>
-                {assignmentHistory.length === 0 ? (
-                  <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
-                    <p className="text-sm text-slate-500">Assignment history is this tab — nothing stored yet for this lead.</p>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Each reassignment from <span className="font-medium text-slate-500">Leads</span> or{' '}
-                      <span className="font-medium text-slate-500">Lead Rotation</span> adds a row here. Reassign once to verify; moves made before the database history tables existed are not shown.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {assignmentHistory.map((record, idx) => (
-                      <div key={record.id} className="relative border border-slate-200 rounded-lg p-4 bg-white">
-                        {idx < assignmentHistory.length - 1 && (
-                          <div className="absolute left-8 top-full h-3 w-0.5 bg-slate-200"></div>
-                        )}
-                        <div className="flex gap-3 items-start">
-                          <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0">
-                            <Users className="w-4 h-4 text-blue-600" />
-                </div>
-                  <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm font-semibold text-slate-700">
-                                {record.fromUserId ? getUserName(record.fromUserId) : 'Unassigned'}
-                              </span>
-                              <ArrowRight className="w-4 h-4 text-slate-400" />
-                              <span className="text-sm font-semibold text-blue-600">
-                                {getUserName(record.toUserId)}
-                              </span>
+                <TabsContent value="history" className="p-6 m-0">
+                  <h3 className="font-semibold text-slate-900 mb-4">Assignment History</h3>
+                  {assignmentHistory.length === 0 ? (
+                    <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
+                      <p className="text-sm text-slate-500">Assignment history is this tab — nothing stored yet for this lead.</p>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        Each reassignment from <span className="font-medium text-slate-500">Leads</span> or{' '}
+                        <span className="font-medium text-slate-500">Lead Rotation</span> adds a row here. Reassign once to verify; moves made before the database history tables existed are not shown.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {assignmentHistory.map((record, idx) => (
+                        <div key={record.id} className="relative border border-slate-200 rounded-lg p-4 bg-white">
+                          {idx < assignmentHistory.length - 1 && (
+                            <div className="absolute left-8 top-full h-3 w-0.5 bg-slate-200"></div>
+                          )}
+                          <div className="flex gap-3 items-start">
+                            <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center flex-shrink-0">
+                              <Users className="w-4 h-4 text-blue-600" />
                             </div>
-                            <p className="text-xs text-slate-500">
-                              Assigned by <span className="font-medium">{getUserName(record.assignedBy)}</span>
-                              {record.reason && !record.reason.toLowerCase().startsWith('auto-unassigned')
-                                ? ` • ${record.reason}`
-                                : ''}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              {format(parseISO(record.createdAt), 'MMM d, yyyy h:mm a')}
-                            </p>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-semibold text-slate-700">
+                                  {record.fromUserId ? getUserName(record.fromUserId) : 'Unassigned'}
+                                </span>
+                                <ArrowRight className="w-4 h-4 text-slate-400" />
+                                <span className="text-sm font-semibold text-blue-600">
+                                  {getUserName(record.toUserId)}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Assigned by <span className="font-medium">{getUserName(record.assignedBy)}</span>
+                                {record.reason && !record.reason.toLowerCase().startsWith('auto-unassigned')
+                                  ? ` • ${record.reason}`
+                                  : ''}
+                              </p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                {format(parseISO(record.createdAt), 'MMM d, yyyy h:mm a')}
+                              </p>
+                            </div>
                           </div>
                         </div>
+                      ))}
                     </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
+                  )}
+                </TabsContent>
               )}
             </Tabs>
           </Card>

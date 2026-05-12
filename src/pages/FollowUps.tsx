@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, isToday, isPast, differenceInHours, differenceInDays } from 'date-fns';
+import { obfuscatePhoneNumber, triggerCall } from '@/src/utils/phoneUtils';
 import { toast } from 'sonner';
 import {
   CalendarDays, Phone, Mail, Clock, Search, Filter, CheckCircle2,
@@ -24,7 +25,7 @@ type TypeFilter = 'all' | 'Call' | 'Meeting' | 'Site Visit' | 'Email' | 'WhatsAp
 
 const getLevelColor = (level: LeadLevel) => {
   switch (level) {
-    case 'Hot':  return 'text-red-500 bg-red-50 border-red-200';
+    case 'Hot': return 'text-red-500 bg-red-50 border-red-200';
     case 'Warm': return 'text-amber-500 bg-amber-50 border-amber-200';
     case 'Cold': return 'text-blue-500 bg-blue-50 border-blue-200';
   }
@@ -32,24 +33,24 @@ const getLevelColor = (level: LeadLevel) => {
 
 const getTypeIcon = (type: string) => {
   switch (type) {
-    case 'Call':       return <Phone className="w-4 h-4" />;
-    case 'Email':      return <Mail className="w-4 h-4" />;
-    case 'Meeting':    return <CalendarDays className="w-4 h-4" />;
+    case 'Call': return <Phone className="w-4 h-4" />;
+    case 'Email': return <Mail className="w-4 h-4" />;
+    case 'Meeting': return <CalendarDays className="w-4 h-4" />;
     case 'Site Visit': return <CalendarDays className="w-4 h-4" />;
-    case 'WhatsApp':   return <Phone className="w-4 h-4" />;
-    default:           return <CalendarDays className="w-4 h-4" />;
+    case 'WhatsApp': return <Phone className="w-4 h-4" />;
+    default: return <CalendarDays className="w-4 h-4" />;
   }
 };
 
 const getTypeColor = (type: string) => {
   switch (type) {
-    case 'Call':       return 'bg-blue-50 text-blue-600 border-blue-200';
-    case 'Email':      return 'bg-purple-50 text-purple-600 border-purple-200';
-    case 'Meeting':    return 'bg-green-50 text-green-600 border-green-200';
+    case 'Call': return 'bg-blue-50 text-blue-600 border-blue-200';
+    case 'Email': return 'bg-purple-50 text-purple-600 border-purple-200';
+    case 'Meeting': return 'bg-green-50 text-green-600 border-green-200';
     case 'Site Visit': return 'bg-emerald-50 text-emerald-600 border-emerald-200';
-    case 'WhatsApp':   return 'bg-teal-50 text-teal-600 border-teal-200';
-    case 'Closure':    return 'bg-orange-50 text-orange-600 border-orange-200';
-    default:           return 'bg-slate-50 text-slate-600 border-slate-200';
+    case 'WhatsApp': return 'bg-teal-50 text-teal-600 border-teal-200';
+    case 'Closure': return 'bg-orange-50 text-orange-600 border-orange-200';
+    default: return 'bg-slate-50 text-slate-600 border-slate-200';
   }
 };
 
@@ -169,7 +170,7 @@ export default function FollowUps() {
     });
 
     // Sort by date
-    const sortByDate = (a: FollowUpWithLead, b: FollowUpWithLead) => 
+    const sortByDate = (a: FollowUpWithLead, b: FollowUpWithLead) =>
       new Date(a.date).getTime() - new Date(b.date).getTime();
 
     overdue.sort(sortByDate);
@@ -269,13 +270,16 @@ export default function FollowUps() {
 
               {/* Phone & Contact Info */}
               <div className="flex items-center gap-4 mb-2">
-                <a
-                  href={`tel:${fu.lead.phoneNumber}`}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    triggerCall(fu.lead.phoneNumber);
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 bg-transparent border-0 p-0 cursor-pointer"
                 >
                   <Phone className="w-3.5 h-3.5" />
-                  {fu.lead.phoneNumber}
-                </a>
+                  {obfuscatePhoneNumber(fu.lead.phoneNumber)}
+                </button>
                 {fu.lead.investmentBudget && fu.lead.investmentBudget !== 'Not Specified' && (
                   <span className="text-xs text-emerald-600 font-semibold">
                     💰 {fu.lead.investmentBudget}

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, isPast, isToday, parseISO, formatDistanceToNow } from 'date-fns';
+import { obfuscatePhoneNumber, triggerCall } from '@/src/utils/phoneUtils';
 import { toast } from 'sonner';
 import {
   Phone,
@@ -76,41 +77,41 @@ const blankLeadForm = () => ({
 
 const getStatusColors = (status: LeadStatus) => {
   switch (status) {
-    case 'New':                   return 'bg-blue-100 text-blue-700';
-    case 'Interested':            return 'bg-purple-100 text-purple-700';
-    case 'Site Visit Scheduled':  return 'bg-cyan-100 text-cyan-700';
-    case 'Busy':                  return 'bg-amber-100 text-amber-800';
-    case 'Not Reachable':         return 'bg-slate-200 text-slate-700';
-    case 'Fake Query':            return 'bg-rose-100 text-rose-800';
-    case 'Not Interested':        return 'bg-red-100 text-red-700';
-    case 'Wrong Number':          return 'bg-gray-100 text-gray-600';
-    case 'Low Budget':            return 'bg-yellow-100 text-yellow-700';
-    default:                      return 'bg-gray-100 text-gray-700';
+    case 'New': return 'bg-blue-100 text-blue-700';
+    case 'Interested': return 'bg-purple-100 text-purple-700';
+    case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-700';
+    case 'Busy': return 'bg-amber-100 text-amber-800';
+    case 'Not Reachable': return 'bg-slate-200 text-slate-700';
+    case 'Fake Query': return 'bg-rose-100 text-rose-800';
+    case 'Not Interested': return 'bg-red-100 text-red-700';
+    case 'Wrong Number': return 'bg-gray-100 text-gray-600';
+    case 'Low Budget': return 'bg-yellow-100 text-yellow-700';
+    default: return 'bg-gray-100 text-gray-700';
   }
 };
 
 const getLevelColors = (level: string) => {
   switch (level) {
-    case 'Hot':  return 'bg-red-100 text-red-600 border-red-200';
+    case 'Hot': return 'bg-red-100 text-red-600 border-red-200';
     case 'Warm': return 'bg-amber-100 text-amber-600 border-amber-200';
     case 'Cold': return 'bg-blue-100 text-blue-500 border-blue-200';
-    default:     return 'bg-gray-100 text-gray-600 border-gray-200';
+    default: return 'bg-gray-100 text-gray-600 border-gray-200';
   }
 };
 
 const getTimeRemaining = (lead: Lead): string => {
   if (!lead.assignmentExpiresAt || !lead.assignedUserId || lead.lastStatusUpdate) return '';
-  
+
   const now = new Date();
   const expires = new Date(lead.assignmentExpiresAt);
   const diff = expires.getTime() - now.getTime();
-  
+
   if (diff <= 0) return 'EXPIRED';
-  
+
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  
+
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
 };
@@ -118,8 +119,8 @@ const getTimeRemaining = (lead: Lead): string => {
 const getFollowUpPriority = (dateStr: string) => {
   try {
     const date = parseISO(dateStr);
-    if (isToday(date))  return { colors: 'bg-orange-100 text-orange-600 border-orange-200', label: 'Today' };
-    if (isPast(date))   return { colors: 'bg-red-100 text-red-600 border-red-200',          label: 'Overdue' };
+    if (isToday(date)) return { colors: 'bg-orange-100 text-orange-600 border-orange-200', label: 'Today' };
+    if (isPast(date)) return { colors: 'bg-red-100 text-red-600 border-red-200', label: 'Overdue' };
     return { colors: 'bg-green-100 text-green-600 border-green-200', label: 'Upcoming' };
   } catch {
     return { colors: 'bg-gray-100 text-gray-500', label: '—' };
@@ -150,19 +151,19 @@ export default function TelecallerDashboard() {
   const navigate = useNavigate();
   const { currentUser } = useRole();
 
-  const [leads, setLeads]     = useState<Lead[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [noteOpen, setNoteOpen]       = useState(false);
-  const [fuOpen, setFuOpen]           = useState(false);
-  const [addOpen, setAddOpen]         = useState(false);
-  const [editOpen, setEditOpen]       = useState(false);
-  const [targetLead, setTargetLead]   = useState<Lead | null>(null);
-  const [noteText, setNoteText]       = useState('');
-  const [fuData, setFuData]           = useState({ type: 'Call', date: '', notes: '' });
-  const [formData, setFormData]       = useState(blankLeadForm());
-  const [saving, setSaving]           = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [fuOpen, setFuOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [targetLead, setTargetLead] = useState<Lead | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [fuData, setFuData] = useState({ type: 'Call', date: '', notes: '' });
+  const [formData, setFormData] = useState(blankLeadForm());
+  const [saving, setSaving] = useState(false);
   /** Closed leads stay on dashboard until this epoch ms, then drop off */
   const [dumpGraceUntil, setDumpGraceUntil] = useState<Record<string, number>>({});
 
@@ -204,7 +205,7 @@ export default function TelecallerDashboard() {
 
   useEffect(() => {
     loadLeads();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser.id]);
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
@@ -381,10 +382,10 @@ export default function TelecallerDashboard() {
 
   // ── Derived stats (only actionable leads — not closed/junk) ─────────────────
   const stats = useMemo(() => {
-    const today      = workloadLeads.filter(l => { try { return isToday(parseISO(l.followUpDate)); } catch { return false; } });
-    const overdue    = workloadLeads.filter(l => { try { return isPast(parseISO(l.followUpDate)) && !isToday(parseISO(l.followUpDate)); } catch { return false; } });
+    const today = workloadLeads.filter(l => { try { return isToday(parseISO(l.followUpDate)); } catch { return false; } });
+    const overdue = workloadLeads.filter(l => { try { return isPast(parseISO(l.followUpDate)) && !isToday(parseISO(l.followUpDate)); } catch { return false; } });
     const visitsSched = workloadLeads.filter(l => l.status === 'Site Visit Scheduled');
-    const hotLeads   = workloadLeads.filter(l => l.leadLevel === 'Hot');
+    const hotLeads = workloadLeads.filter(l => l.leadLevel === 'Hot');
     return { total: workloadLeads.length, today: today.length, overdue: overdue.length, visitsSched: visitsSched.length, hot: hotLeads.length };
   }, [workloadLeads]);
 
@@ -548,13 +549,16 @@ export default function TelecallerDashboard() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-900 text-sm truncate">{lead.clientName}</p>
-                        <a
-                          href={`tel:${lead.phoneNumber}`}
-                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerCall(lead.phoneNumber);
+                          }}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5 bg-transparent border-0 p-0 cursor-pointer"
                         >
                           <Phone className="w-3 h-3" />
-                          {lead.phoneNumber}
-                        </a>
+                          {obfuscatePhoneNumber(lead.phoneNumber)}
+                        </button>
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger className="inline-flex border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full shrink-0 cursor-pointer">
@@ -690,13 +694,16 @@ export default function TelecallerDashboard() {
                     >
                       <TableCell className="px-4 py-3">
                         <div className="font-semibold text-slate-900 text-sm">{lead.clientName}</div>
-                        <a
-                          href={`tel:${lead.phoneNumber}`}
-                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerCall(lead.phoneNumber);
+                          }}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5 bg-transparent border-0 p-0 cursor-pointer"
                         >
                           <Phone className="w-3 h-3" />
-                          {lead.phoneNumber}
-                        </a>
+                          {obfuscatePhoneNumber(lead.phoneNumber)}
+                        </button>
                       </TableCell>
 
                       <TableCell className="px-4 py-3">

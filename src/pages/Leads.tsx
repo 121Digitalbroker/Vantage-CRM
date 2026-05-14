@@ -283,7 +283,26 @@ export default function Leads() {
         const data = await fetchLeads();
         setLeads(data);
       } else if (isManager && currentUser?.id) {
-        const scopeIds = [currentUser.id, ...managedUsers.map(u => u.id)];
+        let scopeIds = [currentUser.id, ...managedUsers.map(u => u.id)];
+        
+        // If General Manager, also include all Manager1s and their telecallers
+        if (currentUser.role === 'Manager') {
+          const manager1Users = allUsers.filter(u => u.role === 'Manager1' && u.status === 'Active');
+          const manager1Ids = new Set(manager1Users.map(u => u.id));
+          
+          // Add Manager1 ids
+          for (const m1 of manager1Users) scopeIds.push(m1.id);
+          
+          // Add telecallers under Manager1s
+          for (const u of allUsers) {
+            if (u.role === 'Telecaller' && u.status === 'Active' && u.managerIds?.some(id => manager1Ids.has(id))) {
+              scopeIds.push(u.id);
+            }
+          }
+          // Remove duplicates
+          scopeIds = [...new Set(scopeIds)];
+        }
+        
         const data = await fetchLeadsAssignedToAny(scopeIds);
         setLeads(data);
       } else if (currentUser?.id) {

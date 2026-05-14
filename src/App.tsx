@@ -42,7 +42,7 @@ function PublicRoute({ children }: { children: ReactNode }) {
 }
 
 function AppRoutes() {
-  const { isTelecaller, isAdmin, isManager, isDigitalMarketer } = useRole();
+  const { isTelecaller, isAdmin, isManager, isDigitalMarketer, currentUser } = useRole();
 
   return (
     <Routes>
@@ -73,10 +73,10 @@ function AppRoutes() {
 
         {/* Admin / Manager routes */}
         <Route path="dashboard"    element={isAdmin ? <Dashboard />       : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
-        <Route path="users"        element={isAdmin ? <Users />           : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
-        <Route path="campaigns"    element={isAdmin ? <CampaignSources /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
-        <Route path="lead-assignment-rotation" element={isAdmin ? <LeadAssignmentRotation /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
-        <Route path="reports"      element={isAdmin ? <Reports />         : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="users"        element={isAdmin || isManager ? <Users /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="campaigns"    element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <CampaignSources /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="lead-assignment-rotation" element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <LeadAssignmentRotation /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="reports"      element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <Reports />         : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="manager-dashboard" element={isManager ? <GeneralManagerDashboard /> : <Navigate to={isTelecaller ? '/my-dashboard' : isDigitalMarketer ? '/leads' : '/dashboard'} replace />} />
 
         {/* Telecaller route */}
@@ -85,9 +85,9 @@ function AppRoutes() {
         {/* Shared routes */}
         <Route path="leads"        element={<Leads />} />
         <Route path="leads/:id"    element={<LeadDetails />} />
-        <Route path="follow-ups"   element={isManager || isDigitalMarketer ? <Navigate to="/leads" replace /> : <FollowUps />} />
-        <Route path="settings"     element={isManager || isDigitalMarketer ? <Navigate to="/leads" replace /> : <Settings />} />
-        <Route path="profile"      element={isManager || isDigitalMarketer ? <Navigate to="/leads" replace /> : <Profile />} />
+        <Route path="follow-ups"   element={isTelecaller || isAdmin || isManager ? <FollowUps /> : <Navigate to="/leads" replace />} />
+        <Route path="settings"     element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <Settings /> : <Navigate to="/leads" replace />} />
+        <Route path="profile"      element={<Profile />} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to={isTelecaller ? '/my-dashboard' : isManager ? '/manager-dashboard' : isDigitalMarketer ? '/leads' : '/dashboard'} replace />} />

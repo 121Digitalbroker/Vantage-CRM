@@ -146,9 +146,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const telecallers = allUsers.filter(u => u.role === 'Telecaller' && u.status === 'Active');
   const managedUsers = allUsers.filter(
     u =>
-      u.role === 'Telecaller'
-      && u.status === 'Active'
-      && !!(currentUser?.id && u.managerIds?.includes(currentUser.id)),
+      u.status === 'Active'
+      && (
+        (u.role === 'Telecaller' && currentUser?.id && u.managerIds?.includes(currentUser.id)) ||
+        (u.role === 'Manager1' && currentUser?.id && u.reportsToGmId === currentUser.id)
+      )
   );
   const managedUserIds = managedUsers.map(u => u.id);
 

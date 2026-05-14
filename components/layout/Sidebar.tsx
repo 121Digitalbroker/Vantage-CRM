@@ -46,7 +46,17 @@ export default function Sidebar({ onClose }: SidebarProps) {
   const managerNav = [
     { name: 'Manager Dashboard', path: '/manager-dashboard', icon: LayoutDashboard },
     { name: 'Leads', path: '/leads', icon: Users },
+    { name: 'Follow-ups', path: '/follow-ups', icon: CalendarDays },
   ];
+
+  // GMs (Manager) can also manage users and see reports
+  if (currentUser.role === 'Manager') {
+    managerNav.push({ name: 'Users', path: '/users', icon: UserCog });
+    managerNav.push({ name: 'Reports', path: '/reports', icon: BarChart3 });
+    managerNav.push({ name: 'Campaign Sources', path: '/campaigns', icon: Megaphone });
+    managerNav.push({ name: 'Lead Rotation', path: '/lead-assignment-rotation', icon: GitCompareArrows });
+    managerNav.push({ name: 'Settings', path: '/settings', icon: Settings });
+  }
 
   const digitalMarketerNav = [
     { name: 'Leads', path: '/leads', icon: Users },

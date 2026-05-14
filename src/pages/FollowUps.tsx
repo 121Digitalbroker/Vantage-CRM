@@ -90,8 +90,36 @@ export default function FollowUps() {
 
       // Filter by user role
       let filtered = allFollowUps;
+      const isManager = currentUser.role === 'Manager' || currentUser.role === 'Manager1';
+      
       if (!isAdmin) {
-        filtered = allFollowUps.filter(fu => fu.lead?.assignedUserId === currentUser.id);
+        if (isManager) {
+          // Managers see their own and their subordinates' follow-ups
+          const managedUsers = allUsers.filter(u => 
+            u.status === 'Active' && 
+            (u.managerIds?.includes(currentUser.id) || (currentUser.role === 'Manager' && u.reportsToGmId === currentUser.id))
+          );
+          
+          let scopeIds = [currentUser.id, ...managedUsers.map(u => u.id)];
+          
+          // If General Manager, also include all Manager1s and their telecallers
+          if (currentUser.role === 'Manager') {
+            const manager1Users = allUsers.filter(u => u.role === 'Manager1' && u.status === 'Active');
+            const manager1Ids = new Set(manager1Users.map(u => u.id));
+            for (const m1 of manager1Users) scopeIds.push(m1.id);
+            for (const u of allUsers) {
+              if (u.role === 'Telecaller' && u.status === 'Active' && u.managerIds?.some(id => manager1Ids.has(id))) {
+                scopeIds.push(u.id);
+              }
+            }
+            scopeIds = [...new Set(scopeIds)];
+          }
+          
+          filtered = allFollowUps.filter(fu => fu.lead?.assignedUserId && scopeIds.includes(fu.lead.assignedUserId));
+        } else {
+          // Others only see their own
+          filtered = allFollowUps.filter(fu => fu.lead?.assignedUserId === currentUser.id);
+        }
       }
 
       setFollowUps(filtered);

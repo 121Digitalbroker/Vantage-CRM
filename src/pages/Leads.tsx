@@ -1119,7 +1119,8 @@ export default function Leads() {
       )}
 
       {/* ── Table card ─────────────────────────────────────────────────────── */}
-      {viewMode === 'table' && <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      {viewMode === 'table' && (
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Toolbar */}
         <div className="p-4 border-b border-slate-200 space-y-3">
           <div className="flex flex-col md:flex-row gap-3 justify-between items-start md:items-center">
@@ -1310,9 +1311,12 @@ export default function Leads() {
           </div>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <Table className="w-full text-[0.8125rem] min-w-[1200px]">
+        {/* Table — scroll horizontally for remaining columns */}
+        <div className="overflow-x-auto border-t border-slate-100">
+          <p className="px-4 py-1.5 text-[0.7rem] text-slate-400 bg-slate-50/80 sticky left-0">
+            Scroll right → Project, Campaign, Assigned To, Status, Follow Up, Actions
+          </p>
+          <Table className="!w-max w-max text-[0.8125rem]">
             <TableHeader>
               <TableRow className="bg-slate-50 hover:bg-slate-50 border-b border-slate-200">
                 <TableHead className="font-semibold text-slate-500 px-4 py-3 w-10">
@@ -1323,45 +1327,45 @@ export default function Leads() {
                     className="cursor-pointer"
                   />
                 </TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[150px]">Client Name</TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[130px]">Phone</TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[130px]">Project</TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[170px]">Campaign</TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[140px]">Investment Budget</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[180px]">Client Name</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap">Phone</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[140px]">Project</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[200px]">Campaign</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[160px]">Investment Budget</TableHead>
                 {canSeeLeadAssignments && (
                   <TableHead
-                    className="font-semibold text-slate-500 px-4 py-3 min-w-[150px] cursor-pointer hover:text-blue-600 select-none"
+                    className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[150px] cursor-pointer hover:text-blue-600 select-none"
                     onClick={() => toggleSort('assignedUserId')}
                   >
                     <div className="flex items-center">Assigned To <SortIcon field="assignedUserId" /></div>
                   </TableHead>
                 )}
                 <TableHead
-                  className="font-semibold text-slate-500 px-4 py-3 min-w-[95px] cursor-pointer hover:text-blue-600 select-none"
+                  className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap cursor-pointer hover:text-blue-600 select-none"
                   onClick={() => toggleSort('leadLevel')}
                 >
                   <div className="flex items-center">Level <SortIcon field="leadLevel" /></div>
                 </TableHead>
                 <TableHead
-                  className="font-semibold text-slate-500 px-4 py-3 min-w-[175px] cursor-pointer hover:text-blue-600 select-none"
+                  className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[175px] cursor-pointer hover:text-blue-600 select-none"
                   onClick={() => toggleSort('status')}
                 >
                   <div className="flex items-center">Status <SortIcon field="status" /></div>
                 </TableHead>
                 <TableHead
-                  className="font-semibold text-slate-500 px-4 py-3 min-w-[145px] cursor-pointer hover:text-blue-600 select-none"
+                  className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[145px] cursor-pointer hover:text-blue-600 select-none"
                   onClick={() => toggleSort('followUpDate')}
                 >
                   <div className="flex items-center">Follow Up <SortIcon field="followUpDate" /></div>
                 </TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[130px]">Last Contacted</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[130px]">Last Contacted</TableHead>
                 <TableHead
-                  className="font-semibold text-slate-500 px-4 py-3 min-w-[110px] cursor-pointer hover:text-blue-600 select-none"
+                  className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap max-w-[110px] cursor-pointer hover:text-blue-600 select-none"
                   onClick={() => toggleSort('createdAt')}
                 >
                   <div className="flex items-center">Created <SortIcon field="createdAt" /></div>
                 </TableHead>
-                <TableHead className="font-semibold text-slate-500 px-4 py-3 min-w-[90px] text-right">Actions</TableHead>
+                <TableHead className="font-semibold text-slate-500 px-4 py-3 whitespace-nowrap text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
 
@@ -1395,11 +1399,13 @@ export default function Leads() {
                           className="cursor-pointer"
                         />
                       </TableCell>
-                      <TableCell className="px-4 py-3">
-                        <div className="font-semibold text-slate-900 leading-tight">{lead.clientName || '—'}</div>
+                      <TableCell className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-semibold text-slate-900 leading-tight max-w-[180px] truncate" title={lead.clientName || undefined}>
+                          {lead.clientName || '—'}
+                        </div>
                       </TableCell>
 
-                      <TableCell className="px-4 py-3">
+                      <TableCell className="px-4 py-3 whitespace-nowrap">
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1412,30 +1418,39 @@ export default function Leads() {
                         </button>
                       </TableCell>
 
-                      <TableCell className="px-4 py-3">
-                        <div className="font-medium text-slate-800 text-xs">{lead.project || '—'}</div>
-                      </TableCell>
-
-                      <TableCell className="px-4 py-3">
-                        <div className="space-y-1">
-                          <span className={`inline-block text-[0.65rem] font-semibold px-1.5 py-0.5 rounded border ${getSourceLabel(lead.leadSource)}`}>
-                            {lead.leadSource || 'Unknown'}
-                          </span>
-                          {/* Campaign Details Table Fields Hidden */}
+                      <TableCell className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-medium text-slate-800 text-xs max-w-[140px] truncate" title={lead.project || undefined}>
+                          {lead.project?.trim() ? lead.project : '—'}
                         </div>
                       </TableCell>
 
-                      <TableCell className="px-4 py-3">
-                        <span className="inline-block text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">
+                      <TableCell className="px-4 py-3 whitespace-nowrap max-w-[200px]">
+                        <div className="flex items-center gap-1.5 max-w-[200px]">
+                          <span className={`shrink-0 text-[0.65rem] font-semibold px-1.5 py-0.5 rounded border ${getSourceLabel(lead.leadSource)}`}>
+                            {lead.leadSource || 'Unknown'}
+                          </span>
+                          {lead.campaignName ? (
+                            <span className="text-[0.68rem] text-slate-500 truncate" title={[lead.campaignName, lead.adsetName, lead.adName].filter(Boolean).join(' · ')}>
+                              {lead.campaignName}
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+
+                      <TableCell className="px-4 py-3 whitespace-nowrap max-w-[160px]">
+                        <span
+                          className="inline-block max-w-[150px] truncate text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700"
+                          title={lead.investmentBudget || 'Not Specified'}
+                        >
                           {lead.investmentBudget || 'Not Specified'}
                         </span>
                       </TableCell>
 
                       {canSeeLeadAssignments && (
-                        <TableCell className="px-4 py-3">
-                          <div className="flex flex-col gap-1">
+                        <TableCell className="px-4 py-3 whitespace-nowrap max-w-[150px]">
+                          <div className="flex flex-col gap-1 max-w-[150px]">
                             <DropdownMenu>
-                              <DropdownMenuTrigger className="flex w-full items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors border border-transparent hover:border-blue-200 justify-between outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                              <DropdownMenuTrigger className="flex w-full max-w-[150px] items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors border border-transparent hover:border-blue-200 justify-between outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
                                 <span className="truncate">{getUserName(lead.assignedUserId)}</span>
                                 <ChevronDown className="w-3 h-3 shrink-0 opacity-50" />
                               </DropdownMenuTrigger>
@@ -1619,7 +1634,8 @@ export default function Leads() {
             {!seesFullLeadDirectory && !isManager && ' (assigned to you)'}
           </div>
         </div>
-      </div>}
+      </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════════════════════
        *  DIALOGS

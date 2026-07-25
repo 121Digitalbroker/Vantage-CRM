@@ -24,9 +24,9 @@ export default function Login() {
     if (!password.trim()) { setError('Please enter your password.'); return; }
 
     setLoading(true);
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 200));
 
-    const result = login(email.trim(), password);
+    const result = await login(email.trim(), password);
     setLoading(false);
 
     if (result.success) {

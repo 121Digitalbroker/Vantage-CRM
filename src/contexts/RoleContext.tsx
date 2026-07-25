@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { fetchUsers, createUser, updateUserStatus, resetUserPassword, updateUser, deleteUser } from '@/src/services/usersService';
+import { fetchUsers, fetchUserByEmail, createUser, updateUserStatus, resetUserPassword, updateUser, deleteUser } from '@/src/services/usersService';
 import { supabase } from '@/lib/supabaseClient';
 import { syncOneSignalUser } from '@/src/lib/onesignal';
 
@@ -78,7 +78,7 @@ interface RoleContextType {
   isManager: boolean;
   isDigitalMarketer: boolean;
   isTelecaller: boolean;
-  login: (email: string, password: string) => LoginResult;
+  login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => void;
   addTelecaller: (data: { name: string; email: string; password: string; phone?: string; role: UserRole; position?: string; managerIds?: string[]; reportsToGmId?: string }) => Promise<{ success: boolean; error?: string }>;
   editUser: (userId: string, updates: { name?: string; email?: string; phone?: string; role?: UserRole; position?: string; managerIds?: string[]; reportsToGmId?: string | null }) => Promise<boolean>;
@@ -155,10 +155,43 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   const managedUserIds = managedUsers.map(u => u.id);
 
   // ── Auth actions ───────────────────────────────────────────────────────────
-  const login = (email: string, password: string): LoginResult => {
-    const user = allUsers.find(u =>
-      u.email.toLowerCase() === email.toLowerCase() && u.password === password
+  const login = async (email: string, password: string): Promise<LoginResult> => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password; // passwords are case-sensitive
+
+    // 1) Fast path: already loaded users
+    let user = allUsers.find(u =>
+      u.email.toLowerCase() === normalizedEmail && u.password === normalizedPassword
     );
+
+    // 2) Reliable path: fetch this email directly from Supabase
+    // (fixes empty allUsers / slow load / stale list)
+    if (!user) {
+      const fromDb = await fetchUserByEmail(normalizedEmail);
+      if (fromDb && fromDb.password === normalizedPassword) {
+        user = fromDb;
+        setAllUsers(prev => {
+          if (prev.some(u => u.id === fromDb.id)) {
+            return prev.map(u => (u.id === fromDb.id ? fromDb : u));
+          }
+          return [...prev, fromDb];
+        });
+      } else if (!fromDb && allUsers.length === 0) {
+        // Distinguish "wrong password" from "users table not readable"
+        const probe = await fetchUsers();
+        if (probe.length === 0) {
+          return {
+            success: false,
+            error: 'Cannot load users from database. Check Supabase URL/key and RLS on public.users.',
+          };
+        }
+        setAllUsers(probe);
+        user = probe.find(u =>
+          u.email.toLowerCase() === normalizedEmail && u.password === normalizedPassword
+        );
+      }
+    }
+
     if (!user) return { success: false, error: 'Invalid email or password.' };
     if (user.status === 'Inactive')
       return { success: false, error: 'Your account has been deactivated. Contact your admin.' };

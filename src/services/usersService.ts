@@ -68,14 +68,27 @@ export async function fetchUsers(): Promise<AppUser[]> {
 }
 
 export async function fetchUserByEmail(email: string): Promise<AppUser | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+
+  // Prefer exact match (emails are usually stored lowercase)
+  const exact = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', normalized)
+    .maybeSingle();
+
+  if (!exact.error && exact.data) return mapToAppUser(exact.data);
+
+  // Fallback: case-insensitive match for manually edited rows
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('email', email.toLowerCase())
-    .single();
+    .ilike('email', normalized)
+    .limit(1);
 
-  if (error || !data) return null;
-  return mapToAppUser(data);
+  if (error || !data?.length) return null;
+  return mapToAppUser(data[0]);
 }
 
 export async function createUser(user: Omit<AppUser, 'id' | 'createdAt'>): Promise<AppUser | null> {

@@ -73,7 +73,7 @@ function AppRoutes() {
 
         {/* Admin / Manager routes */}
         <Route path="dashboard"    element={isAdmin ? <Dashboard />       : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
-        <Route path="users"        element={isAdmin || isManager ? <Users /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
+        <Route path="users"        element={isAdmin ? <Users /> : <Navigate to={isTelecaller ? '/my-dashboard' : isManager ? '/manager-dashboard' : '/leads'} replace />} />
         <Route path="campaigns"    element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <CampaignSources /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="lead-assignment-rotation" element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <LeadAssignmentRotation /> : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />
         <Route path="reports"      element={isAdmin || (isManager && currentUser?.role === 'Manager') ? <Reports />         : <Navigate to={isTelecaller ? '/my-dashboard' : '/leads'} replace />} />

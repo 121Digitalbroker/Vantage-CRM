@@ -49,9 +49,8 @@ export default function Sidebar({ onClose }: SidebarProps) {
     { name: 'Follow-ups', path: '/follow-ups', icon: CalendarDays },
   ];
 
-  // GMs (Manager) can also manage users and see reports
+  // GMs (Manager) get reports/campaigns/rotation/settings — Users stays Admin-only
   if (currentUser.role === 'Manager') {
-    managerNav.push({ name: 'Users', path: '/users', icon: UserCog });
     managerNav.push({ name: 'Reports', path: '/reports', icon: BarChart3 });
     managerNav.push({ name: 'Campaign Sources', path: '/campaigns', icon: Megaphone });
     managerNav.push({ name: 'Lead Rotation', path: '/lead-assignment-rotation', icon: GitCompareArrows });

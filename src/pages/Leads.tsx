@@ -263,11 +263,31 @@ export default function Leads() {
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [isManager, currentUser, managedUsers, allUsers]);
 
-  /** Assignment targets: full roster for org-wide roles; scoped list (team + all managers) for Manager1. */
-  const assigneePickerUsers = useMemo(
-    () => (seesFullLeadDirectory ? assigneeUsers : managerScopeAssignees),
-    [seesFullLeadDirectory, assigneeUsers, managerScopeAssignees],
-  );
+  /**
+   * General Manager: only self + direct telecallers + Manager1s who report to this GM
+   * + telecallers under those Manager1s — not the full company roster.
+   */
+  const gmTeamAssignees = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'Manager') return [];
+    const byId = new Map<string, (typeof allUsers)[0]>();
+    byId.set(currentUser.id, currentUser);
+    for (const u of managedUsers) byId.set(u.id, u);
+    const manager1Ids = new Set(
+      managedUsers.filter(u => u.role === 'Manager1').map(u => u.id),
+    );
+    for (const u of allUsers) {
+      if (u.role !== 'Telecaller' || u.status !== 'Active') continue;
+      if (u.managerIds?.some(id => manager1Ids.has(id))) byId.set(u.id, u);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [currentUser, managedUsers, allUsers]);
+
+  /** Admin/DM: full roster. GM: own team tree only. Manager1: scoped team + managers. */
+  const assigneePickerUsers = useMemo(() => {
+    if (currentUser?.role === 'Manager') return gmTeamAssignees;
+    if (seesFullLeadDirectory) return assigneeUsers;
+    return managerScopeAssignees;
+  }, [currentUser?.role, gmTeamAssignees, seesFullLeadDirectory, assigneeUsers, managerScopeAssignees]);
 
   const getUserName = (id: string) => {
     if (!id?.trim()) return 'Unassigned';

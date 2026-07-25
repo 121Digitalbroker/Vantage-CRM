@@ -44,7 +44,7 @@ export default function GeneralManagerDashboard() {
   const [dateRangeStart, setDateRangeStart] = useState('');
   const [dateRangeEnd, setDateRangeEnd] = useState('');
 
-  /** General Manager: direct telecallers + every Manager1 + telecallers under those Manager1s. Manager1: unchanged (self + mapped telecallers only). */
+  /** General Manager: direct telecallers + Manager1s who report to this GM + their telecallers. Manager1: self + mapped telecallers only. */
   const dashboardMembers = useMemo(() => {
     if (!currentUser) return [] as AppUser[];
     if (currentUser.role !== 'Manager') {
@@ -52,7 +52,9 @@ export default function GeneralManagerDashboard() {
     }
     const byId = new Map<string, AppUser>();
     for (const u of managedUsers) byId.set(u.id, u);
-    const manager1Users = allUsers.filter(u => u.role === 'Manager1' && u.status === 'Active');
+    const manager1Users = allUsers.filter(
+      u => u.role === 'Manager1' && u.status === 'Active' && u.reportsToGmId === currentUser.id,
+    );
     for (const u of manager1Users) byId.set(u.id, u);
     const manager1Ids = new Set(manager1Users.map(u => u.id));
     for (const u of allUsers) {

@@ -189,9 +189,9 @@ export default function Leads() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { currentUser, telecallers, allUsers, isAdmin, isManager, isDigitalMarketer, managedUsers } = useRole();
-  /** Full org directory (every lead): Admin, Digital Marketer, General Manager only — not Manager1. */
+  /** Full org directory (every lead): Admin and Digital Marketer only. GMs see their team scope. */
   const seesFullLeadDirectory =
-    isAdmin || isDigitalMarketer || currentUser?.role === 'Manager';
+    isAdmin || isDigitalMarketer;
   /** Admin + GM + Manager1: assignment column + reassign. Manager1 stays scoped to self + team on the list. */
   const canSeeLeadAssignments = isAdmin || isManager;
   const leadsFiltersStorageKey = `${LEADS_FILTERS_LS_PREFIX}:${currentUser?.id ?? 'anonymous'}`;
@@ -304,25 +304,24 @@ export default function Leads() {
         setLeads(data);
       } else if (isManager && currentUser?.id) {
         let scopeIds = [currentUser.id, ...managedUsers.map(u => u.id)];
-        
-        // If General Manager, also include all Manager1s and their telecallers
+
+        // General Manager: only Manager1s who report to this GM + their telecallers
         if (currentUser.role === 'Manager') {
-          const manager1Users = allUsers.filter(u => u.role === 'Manager1' && u.status === 'Active');
+          const manager1Users = allUsers.filter(
+            u => u.role === 'Manager1' && u.status === 'Active' && u.reportsToGmId === currentUser.id,
+          );
           const manager1Ids = new Set(manager1Users.map(u => u.id));
-          
-          // Add Manager1 ids
+
           for (const m1 of manager1Users) scopeIds.push(m1.id);
-          
-          // Add telecallers under Manager1s
+
           for (const u of allUsers) {
             if (u.role === 'Telecaller' && u.status === 'Active' && u.managerIds?.some(id => manager1Ids.has(id))) {
               scopeIds.push(u.id);
             }
           }
-          // Remove duplicates
           scopeIds = [...new Set(scopeIds)];
         }
-        
+
         const data = await fetchLeadsAssignedToAny(scopeIds);
         setLeads(data);
       } else if (currentUser?.id) {

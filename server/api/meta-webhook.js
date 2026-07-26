@@ -6,7 +6,7 @@ import {
   leadRowFromGraphLead,
   verifyMetaSignature,
 } from "../lib/metaLeadWebhook.js";
-import { noDeprecation } from "node:process";
+import { getDefaultNewLeadAssigneeId } from "../lib/defaultNewLeadAssignee.js";
 
 /**
  * GET — Meta webhook verification (paste Callback URL in Meta → Webhooks).
@@ -30,8 +30,7 @@ export default async function metaWebhookHandler(req, res) {
   if (!verifyMetaSignature(rawBody, sig)) {
     return res.sendStatus(403);
   }
-  
-  
+
   let body;
   try {
     body = JSON.parse(rawBody.toString("utf8"));
@@ -44,6 +43,7 @@ export default async function metaWebhookHandler(req, res) {
     return res.status(200).json({ ok: true, processed: 0, message: "no leadgen events" });
   }
 
+  const defaultAssigneeId = getDefaultNewLeadAssigneeId();
   const results = [];
   for (const leadgenId of leadgenIds) {
     try {
@@ -59,20 +59,23 @@ export default async function metaWebhookHandler(req, res) {
       if (findErr) throw new Error(findErr.message);
 
       if (existing?.id) {
+        // Do not overwrite assignee on update — only new inserts get Admin.
+        const { assigned_to: _omitAssignee, ...updateRow } = row;
         const { error: upErr } = await supabase
           .from("leads")
-          .update(row)
+          .update(updateRow)
           .eq("id", existing.id);
         if (upErr) throw new Error(upErr.message);
         results.push({ leadgenId, action: "updated", id: existing.id });
       } else {
+        row.assigned_to = defaultAssigneeId;
         const { data: inserted, error: insErr } = await supabase
           .from("leads")
           .insert(row)
           .select("id")
           .single();
         if (insErr) throw new Error(insErr.message);
-        results.push({ leadgenId, action: "inserted", id: inserted?.id });
+        results.push({ leadgenId, action: "inserted", id: inserted?.id, assigned_to: defaultAssigneeId });
       }
     } catch (e) {
       results.push({

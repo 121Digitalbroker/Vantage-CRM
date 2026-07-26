@@ -73,6 +73,21 @@ export function useDemoLeads(): boolean {
   return v !== 'false' && v !== '0';
 }
 
+/**
+ * New leads with no assignee → Admin User (`admin-1`).
+ * Override with VITE_DEFAULT_NEW_LEAD_ASSIGNEE_ID (CRM users.id).
+ * Does not change existing unassigned leads.
+ */
+export function getDefaultNewLeadAssigneeId(): string {
+  const fromEnv = String(import.meta.env.VITE_DEFAULT_NEW_LEAD_ASSIGNEE_ID ?? '').trim();
+  return fromEnv || 'admin-1';
+}
+
+function withDefaultAssignee<T extends { assignedUserId?: string }>(lead: T): T {
+  if (String(lead.assignedUserId ?? '').trim()) return lead;
+  return { ...lead, assignedUserId: getDefaultNewLeadAssigneeId() };
+}
+
 /** PostgREST when `lead_*_history` tables are not migrated yet (404 / schema cache). */
 function isMissingHistoryTableError(error: { message?: string; code?: string; details?: string }): boolean {
   const code = String(error?.code ?? '');
@@ -405,24 +420,26 @@ export async function fetchLead(id: string): Promise<Lead | null> {
   return mapToLead(data);
 }
 
-/** Create a new lead. */
+/** Create a new lead. Empty assignee → Admin User (new leads only). */
 export async function createLead(lead: Omit<Lead, 'id' | 'createdAt'>): Promise<Lead> {
-  if (useDemoLeads()) return demoCreateLead(lead);
+  const payload = withDefaultAssignee(lead);
+  if (useDemoLeads()) return demoCreateLead(payload);
 
   const { data, error } = await supabase
     .from('leads')
-    .insert(mapToRow(lead as Partial<Lead>))
+    .insert(mapToRow(payload as Partial<Lead>))
     .select()
     .single();
   if (error) throw new Error(error.message);
   return mapToLead(data);
 }
 
-/** Create a new lead with custom createdAt (for imports). */
+/** Create a new lead with custom createdAt (for imports). Empty assignee → Admin User. */
 export async function createLeadWithDate(lead: Omit<Lead, 'id'> & { createdAt: string }): Promise<Lead> {
-  if (useDemoLeads()) return demoCreateLead(lead);
+  const payload = withDefaultAssignee(lead);
+  if (useDemoLeads()) return demoCreateLead(payload);
 
-  const row = mapToRow(lead as Partial<Lead>);
+  const row = mapToRow(payload as Partial<Lead>);
   row.created_at = lead.createdAt;
 
   const { data, error } = await supabase

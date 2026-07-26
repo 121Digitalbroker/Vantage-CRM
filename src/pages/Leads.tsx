@@ -237,57 +237,79 @@ export default function Leads() {
   const [fuOpen, setFuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  const [bulkReassignUserId, setBulkReassignUserId] = useState('');
   const [targetLead, setTargetLead] = useState<Lead | null>(null);
   const [formData, setFormData] = useState(blankLeadForm());
   const [noteText, setNoteText] = useState('');
   const [fuData, setFuData] = useState({ type: 'Call', date: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'pipeline'>(savedFilters.viewMode ?? 'table');
+  /** People who can own leads: telecallers, managers, and Admin (new leads land on Admin). */
   const assigneeUsers = useMemo(
-    () => allUsers.filter(u => u.status === 'Active' && (u.role === 'Telecaller' || isManagerKindRole(u.role))),
-    [allUsers]
+    () =>
+      allUsers
+        .filter(
+          (u) =>
+            u.status === 'Active'
+            && (u.role === 'Telecaller' || isManagerKindRole(u.role) || u.role === 'Admin'),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+    [allUsers],
   );
 
   /**
-   * Scoped manager (Manager1): assign / filter to self, own telecallers, and every GM / Manager1
-   * so multiple people can route leads to either manager, not only within one subtree.
+   * Manager (Manager1): only self + telecallers whose managerIds include this manager.
+   * Never include peer Managers / General Managers (Sanjay, Tushar, etc.).
    */
-  const managerScopeAssignees = useMemo(() => {
-    if (!isManager || !currentUser) return [];
-    const byId = new Map<string, (typeof allUsers)[0]>();
-    byId.set(currentUser.id, currentUser);
-    for (const u of managedUsers) byId.set(u.id, u);
-    for (const u of allUsers) {
-      if (u.status === 'Active' && isManagerKindRole(u.role)) byId.set(u.id, u);
-    }
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-  }, [isManager, currentUser, managedUsers, allUsers]);
+  const managerTeamAssignees = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'Manager1') return [];
+    const team = allUsers.filter(
+      (u) =>
+        u.status === 'Active'
+        && u.role === 'Telecaller'
+        && u.managerIds?.includes(currentUser.id),
+    );
+    return [currentUser, ...team].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
+  }, [currentUser, allUsers]);
 
   /**
-   * General Manager: only self + direct telecallers + Manager1s who report to this GM
-   * + telecallers under those Manager1s — not the full company roster.
+   * General Manager: self + direct telecallers + Managers (Manager1) who report to this GM
+   * + telecallers under those Managers. Never include other General Managers.
    */
   const gmTeamAssignees = useMemo(() => {
     if (!currentUser || currentUser.role !== 'Manager') return [];
     const byId = new Map<string, (typeof allUsers)[0]>();
     byId.set(currentUser.id, currentUser);
-    for (const u of managedUsers) byId.set(u.id, u);
+    for (const u of allUsers) {
+      if (u.status !== 'Active') continue;
+      if (u.role === 'Telecaller' && u.managerIds?.includes(currentUser.id)) {
+        byId.set(u.id, u);
+      }
+      if (u.role === 'Manager1' && u.reportsToGmId === currentUser.id) {
+        byId.set(u.id, u);
+      }
+    }
     const manager1Ids = new Set(
-      managedUsers.filter(u => u.role === 'Manager1').map(u => u.id),
+      [...byId.values()].filter((u) => u.role === 'Manager1').map((u) => u.id),
     );
     for (const u of allUsers) {
       if (u.role !== 'Telecaller' || u.status !== 'Active') continue;
-      if (u.managerIds?.some(id => manager1Ids.has(id))) byId.set(u.id, u);
+      if (u.managerIds?.some((id) => manager1Ids.has(id))) byId.set(u.id, u);
     }
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-  }, [currentUser, managedUsers, allUsers]);
+    return [...byId.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
+  }, [currentUser, allUsers]);
 
-  /** Admin/DM: full roster. GM: own team tree only. Manager1: scoped team + managers. */
+  /** Admin/DM: full roster. GM / Manager: own team only — never peer managers. */
   const assigneePickerUsers = useMemo(() => {
     if (currentUser?.role === 'Manager') return gmTeamAssignees;
+    if (currentUser?.role === 'Manager1') return managerTeamAssignees;
     if (seesFullLeadDirectory) return assigneeUsers;
-    return managerScopeAssignees;
-  }, [currentUser?.role, gmTeamAssignees, seesFullLeadDirectory, assigneeUsers, managerScopeAssignees]);
+    return [];
+  }, [currentUser?.role, gmTeamAssignees, managerTeamAssignees, seesFullLeadDirectory, assigneeUsers]);
 
   const getUserName = (id: string) => {
     if (!id?.trim()) return 'Unassigned';
@@ -836,6 +858,49 @@ export default function Leads() {
     }
   };
 
+  // ── Bulk Reassign (Admin only) ─────────────────────────────────────────────
+  const handleBulkReassign = async () => {
+    if (!isAdmin || !currentUser) return;
+    if (selectedLeads.size === 0) {
+      toast.error('Select leads to reassign');
+      return;
+    }
+    if (!bulkReassignUserId) {
+      toast.error('Choose who to reassign to');
+      return;
+    }
+    const isUnassign = bulkReassignUserId === '__unassigned__';
+    const label = isUnassign ? 'Unassigned' : getUserName(bulkReassignUserId);
+    if (!confirm(`Reassign ${selectedLeads.size} lead(s) to ${label}?`)) return;
+
+    setSaving(true);
+    const ids = [...selectedLeads];
+    let ok = 0;
+    try {
+      for (const leadId of ids) {
+        await assignLead(leadId, isUnassign ? '' : bulkReassignUserId, currentUser.name);
+        if (isUnassign) {
+          patchLocal(leadId, {
+            assignedUserId: '',
+            assignedAt: undefined,
+            assignmentExpiresAt: undefined,
+          });
+        } else {
+          patchLocal(leadId, { assignedUserId: bulkReassignUserId });
+        }
+        ok += 1;
+      }
+      setSelectedLeads(new Set());
+      setBulkReassignUserId('');
+      toast.success(`${ok} lead(s) reassigned to ${label}`);
+    } catch {
+      toast.error(`Reassigned ${ok} of ${ids.length}; some failed — refreshing`);
+      await loadLeads();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleSelectLead = (leadId: string) => {
     setSelectedLeads(prev => {
       const next = new Set(prev);
@@ -1249,6 +1314,35 @@ export default function Leads() {
                   ))}
                 </SelectContent>
               </Select>
+            )}
+
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Select
+                  value={bulkReassignUserId || undefined}
+                  onValueChange={setBulkReassignUserId}
+                >
+                  <SelectTrigger className="h-8 text-xs w-[170px] border-slate-200 bg-slate-50">
+                    <UserPlus className="w-3 h-3 mr-1.5 text-slate-400 shrink-0" />
+                    <SelectValue placeholder="Reassign to…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                    {assigneeUsers.map(u => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs bg-blue-500 hover:bg-blue-600 text-white px-2.5"
+                  onClick={() => { void handleBulkReassign(); }}
+                  disabled={saving || !bulkReassignUserId || selectedLeads.size === 0}
+                  title={selectedLeads.size === 0 ? 'Select leads in the table first' : `Reassign ${selectedLeads.size} selected`}
+                >
+                  {selectedLeads.size > 0 ? `Reassign ${selectedLeads.size}` : 'Reassign'}
+                </Button>
+              </div>
             )}
 
             <Select value={duplicateFilter} onValueChange={(v) => setDuplicateFilter(v as 'All' | 'Name' | 'Phone' | 'NameOrPhone')}>

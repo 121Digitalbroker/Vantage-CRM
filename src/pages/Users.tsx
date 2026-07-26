@@ -42,7 +42,11 @@ const roleAvatarColors: Record<string, string> = {
 
 export default function Users() {
   const { allUsers, addTelecaller, editUser, toggleUserStatus, resetPassword, removeUser } = useRole();
-  const displayRole = (role: UserRole) => (role === 'Manager' ? 'General Manager' : role);
+  const displayRole = (role: UserRole) => {
+    if (role === 'Manager') return 'General Manager';
+    if (role === 'Manager1') return 'Manager';
+    return role;
+  };
   const generalManagers = allUsers.filter(u => isManagerKindRole(u.role) && u.status === 'Active');
   const assignableGeneralManagers = useMemo(
     () => allUsers.filter(u => u.role === 'Manager' && u.status === 'Active'),
@@ -311,14 +315,14 @@ export default function Users() {
                     <SelectItem value="Telecaller">Telecaller</SelectItem>
                     <SelectItem value="Digital Marketer">Digital Marketer</SelectItem>
                     <SelectItem value="Manager">General Manager</SelectItem>
-                    <SelectItem value="Manager1">Manager1</SelectItem>
+                    <SelectItem value="Manager1">Manager</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {form.role === 'Manager1' && (
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium text-slate-700">Assign to GM</Label>
+                  <Label className="text-sm font-medium text-slate-700">Assign to General Manager</Label>
                   <Select
                     value={form.reportsToGmId || 'none'}
                     onValueChange={v => setForm(f => ({ ...f, reportsToGmId: v === 'none' ? '' : v }))}
@@ -341,7 +345,7 @@ export default function Users() {
 
               {form.role === 'Telecaller' && (
                 <ManagerTagsField
-                  label="Managers (GM / Manager1)"
+                  label="Managers (General Manager / Manager)"
                   selectedIds={form.managerIds}
                   onChange={managerIds => setForm(f => ({ ...f, managerIds }))}
                   managers={generalManagers.map(m => ({ id: m.id, name: m.name }))}
@@ -574,7 +578,7 @@ export default function Users() {
                   <SelectItem value="Admin">Admin</SelectItem>
                   <SelectItem value="Digital Marketer">Digital Marketer</SelectItem>
                   <SelectItem value="Manager">General Manager</SelectItem>
-                  <SelectItem value="Manager1">Manager1</SelectItem>
+                  <SelectItem value="Manager1">Manager</SelectItem>
                   <SelectItem value="Telecaller">Telecaller</SelectItem>
                 </SelectContent>
               </Select>
@@ -582,7 +586,7 @@ export default function Users() {
 
             {editForm.role === 'Manager1' && (
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium text-slate-700">Assign to GM</Label>
+                <Label className="text-sm font-medium text-slate-700">Assign to General Manager</Label>
                 <Select
                   value={editForm.reportsToGmId || 'none'}
                   onValueChange={v => setEditForm(f => ({ ...f, reportsToGmId: v === 'none' ? '' : v }))}
@@ -605,7 +609,7 @@ export default function Users() {
 
             {editForm.role === 'Telecaller' && (
               <ManagerTagsField
-                label="Managers (GM / Manager1)"
+                label="Managers (General Manager / Manager)"
                 selectedIds={editForm.managerIds}
                 onChange={managerIds => setEditForm(f => ({ ...f, managerIds }))}
                 managers={generalManagers.map(m => ({ id: m.id, name: m.name }))}

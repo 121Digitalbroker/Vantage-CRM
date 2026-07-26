@@ -5,7 +5,7 @@ import { syncOneSignalUser } from '@/src/lib/onesignal';
 
 export type UserRole = 'Admin' | 'Manager' | 'Manager1' | 'Digital Marketer' | 'Telecaller';
 
-/** General Manager (`Manager`) or secondary team lead (`Manager1`) — same app privileges as GM. */
+/** General Manager (`Manager`) or team Manager (`Manager1`). */
 export function isManagerKindRole(role: string | undefined | null): boolean {
   return role === 'Manager' || role === 'Manager1';
 }

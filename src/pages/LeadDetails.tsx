@@ -55,8 +55,11 @@ const getStatusBadgeColor = (status: LeadStatus) => {
 export default function LeadDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentUser, allUsers, telecallers, isTelecaller } = useRole();
+  const { currentUser, allUsers, telecallers, isTelecaller, isAdmin } = useRole();
+  /** Status History: Admin, GM, Manager, Digital Marketer (not telecallers). */
   const showLeadHistoryTabs = !isTelecaller;
+  /** Assignment History: Admin only — hidden from GM, Manager, telecaller, marketer. */
+  const canSeeAssignmentHistory = isAdmin === true;
 
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,7 +93,7 @@ export default function LeadDetails() {
         fetchLead(id),
         getNotes(id),
         getFollowUps(id),
-        showLeadHistoryTabs ? getAssignmentHistory(id) : Promise.resolve([] as AssignmentHistory[]),
+        canSeeAssignmentHistory ? getAssignmentHistory(id) : Promise.resolve([] as AssignmentHistory[]),
         showLeadHistoryTabs ? getStatusHistory(id) : Promise.resolve([] as StatusHistory[]),
       ]);
       if (!leadData) { toast.error('Lead not found'); navigate('/leads'); return; }
@@ -107,10 +110,15 @@ export default function LeadDetails() {
     }
   };
 
-  useEffect(() => { loadData(); }, [id, showLeadHistoryTabs]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadData(); }, [id, showLeadHistoryTabs, canSeeAssignmentHistory]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setLeadDetailTab('activity');
   }, [id]);
+  useEffect(() => {
+    if (!canSeeAssignmentHistory && leadDetailTab === 'history') {
+      setLeadDetailTab('activity');
+    }
+  }, [canSeeAssignmentHistory, leadDetailTab]);
 
   const handleAddNote = async () => {
     if (!id || !noteText.trim()) return;
@@ -199,8 +207,6 @@ export default function LeadDetails() {
       toast.error('Failed to complete follow-up');
     }
   };
-
-  const isAdmin = currentUser.role === 'Admin';
 
   if (loading) {
     return (
@@ -367,7 +373,7 @@ export default function LeadDetails() {
               <div>
                 <p className="text-xs text-slate-500">Assigned To</p>
                 <p className="text-sm font-semibold text-slate-900">{getUserName(lead.assignedUserId)}</p>
-                {showLeadHistoryTabs && assignmentHistory.length > 0 && (
+                {canSeeAssignmentHistory && assignmentHistory.length > 0 && (
                   <div className="mt-2 rounded-md border border-slate-100 bg-slate-50/80 px-2.5 py-2">
                     <p className="text-[0.65rem] font-medium uppercase tracking-wide text-slate-500">
                       Latest reassignment
@@ -430,10 +436,10 @@ export default function LeadDetails() {
                   <TabsTrigger value="activity" className="shrink-0">Notes & Activity</TabsTrigger>
                   <TabsTrigger value="followups" className="shrink-0">Follow-ups ({followUps.length})</TabsTrigger>
                   {showLeadHistoryTabs && (
-                    <>
-                      <TabsTrigger value="status" className="shrink-0">Status History ({statusHistory.length})</TabsTrigger>
-                      <TabsTrigger value="history" className="shrink-0">Assignment History ({assignmentHistory.length})</TabsTrigger>
-                    </>
+                    <TabsTrigger value="status" className="shrink-0">Status History ({statusHistory.length})</TabsTrigger>
+                  )}
+                  {canSeeAssignmentHistory && (
+                    <TabsTrigger value="history" className="shrink-0">Assignment History ({assignmentHistory.length})</TabsTrigger>
                   )}
                 </TabsList>
               </div>
@@ -591,17 +597,23 @@ export default function LeadDetails() {
                   {statusHistory.length === 0 ? (
                     <div className="text-center py-8 px-4 max-w-lg mx-auto space-y-2">
                       <p className="text-sm text-slate-500">No pipeline status changes recorded yet (e.g. New → Busy).</p>
-                      <p className="text-xs text-slate-400 leading-relaxed">
-                        Who the lead is <span className="font-medium text-slate-500">assigned to</span> is tracked separately — open the{' '}
-                        <button
-                          type="button"
-                          className="font-medium text-blue-600 hover:underline"
-                          onClick={() => setLeadDetailTab('history')}
-                        >
-                          Assignment History
-                        </button>{' '}
-                        tab. Older activity from before server-side history was enabled may not appear.
-                      </p>
+                      {canSeeAssignmentHistory ? (
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Who the lead is <span className="font-medium text-slate-500">assigned to</span> is tracked separately — open the{' '}
+                          <button
+                            type="button"
+                            className="font-medium text-blue-600 hover:underline"
+                            onClick={() => setLeadDetailTab('history')}
+                          >
+                            Assignment History
+                          </button>{' '}
+                          tab. Older activity from before server-side history was enabled may not appear.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Older activity from before server-side history was enabled may not appear.
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -639,8 +651,8 @@ export default function LeadDetails() {
                 </TabsContent>
               )}
 
-              {/* ── Assignment History tab (admin / manager / marketer only) ─ */}
-              {showLeadHistoryTabs && (
+              {/* ── Assignment History tab (Admin only) ─ */}
+              {canSeeAssignmentHistory && (
                 <TabsContent value="history" className="p-6 m-0">
                   <h3 className="font-semibold text-slate-900 mb-4">Assignment History</h3>
                   {assignmentHistory.length === 0 ? (

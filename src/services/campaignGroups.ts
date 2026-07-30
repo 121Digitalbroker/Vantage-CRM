@@ -128,6 +128,17 @@ export function leadMatchesPreviousFilter(
   return false;
 }
 
+/** Whether a project/campaign label belongs to any Previous group (member or group name). */
+export function isLabelInPreviousGroups(label: string, groups: CampaignGroup[]): boolean {
+  const ll = label.trim().toLowerCase();
+  if (!ll || groups.length === 0) return false;
+  for (const g of groups) {
+    if (g.name.trim().toLowerCase() === ll) return true;
+    if (g.members.some(m => m.trim().toLowerCase() === ll)) return true;
+  }
+  return false;
+}
+
 /** Display name of the Previous campaign group this lead belongs to, if any. */
 export function previousGroupNameForLead(lead: Lead, groups: CampaignGroup[]): string | null {
   if (groups.length === 0) return null;

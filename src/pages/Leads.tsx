@@ -37,6 +37,7 @@ import {
   loadCampaignGroups,
   previousGroupFilterToken,
   previousGroupNameForLead,
+  isLabelInPreviousGroups,
 } from '@/src/services/campaignGroups';
 import {
   fetchLeads,
@@ -1027,18 +1028,38 @@ export default function Leads() {
   }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, campaignGroups, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
 
   const projectFilterOptions = useMemo(() => {
-    const projectNames: string[] = leads.reduce<string[]>((acc, lead) => {
+    /** Any project name that appears on a lead already in a Previous group. */
+    const excludedKeys = new Set<string>();
+    for (const lead of leads) {
+      if (!previousGroupNameForLead(lead, campaignGroups)) continue;
+      const project = (lead.project || '').trim();
+      if (project) excludedKeys.add(project.toLowerCase());
+    }
+
+    const names = new Set<string>();
+    for (const lead of leads) {
       const name = typeof lead.project === 'string' ? lead.project.trim() : '';
-      if (name) acc.push(name);
-      return acc;
-    }, []);
-    const names = new Set<string>(projectNames);
+      if (!name) continue;
+      if (isLabelInPreviousGroups(name, campaignGroups)) continue;
+      if (excludedKeys.has(name.toLowerCase())) continue;
+      names.add(name);
+    }
+
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  }, [leads]);
+  }, [leads, campaignGroups]);
+
+  /** Drop stale Current selections that are now covered by Previous groups. */
+  useEffect(() => {
+    setProjectFilter(prev => {
+      const cleaned = prev.filter(p => isPreviousFilterToken(p) || projectFilterOptions.includes(p));
+      if (cleaned.length === prev.length && cleaned.every((v, i) => v === prev[i])) return prev;
+      return cleaned;
+    });
+  }, [campaignGroups, projectFilterOptions]);
 
   const projectFilterLabel = useMemo(() => {
     const n = projectFilter.length;
-    if (n === 0) return 'All projects';
+    if (n === 0) return 'Show All';
     if (n === 1) {
       const s = projectFilter[0];
       if (s === PREVIOUS_FILTER_ALL) return 'Previous';
@@ -1306,18 +1327,22 @@ export default function Leads() {
                   Projects — select multiple
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-xs"
-                  onClick={() => setProjectFilter([])}
+                <DropdownMenuCheckboxItem
+                  checked={projectFilter.length === 0}
+                  onCheckedChange={(checked) => {
+                    if (checked) setProjectFilter([]);
+                  }}
+                  className="text-xs font-medium"
+                  onSelect={(e) => e.preventDefault()}
                 >
-                  Clear selection (all projects)
-                </DropdownMenuItem>
+                  Show All
+                </DropdownMenuCheckboxItem>
                 {projectFilterOptions.length > 0 && (
                   <DropdownMenuItem
                     className="text-xs"
                     onClick={() => setProjectFilter([...projectFilterOptions])}
                   >
-                    Select all listed
+                    Select all current
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
@@ -1342,7 +1367,7 @@ export default function Leads() {
                       className="text-xs font-medium"
                       onSelect={(e) => e.preventDefault()}
                     >
-                      Previous (all groups)
+                      All previous
                     </DropdownMenuCheckboxItem>
                     {campaignGroups.map((g) => {
                       const token = previousGroupFilterToken(g.id);
@@ -1372,10 +1397,14 @@ export default function Leads() {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
-                  All projects
+                  Current
                 </DropdownMenuLabel>
                 {projectFilterOptions.length === 0 ? (
-                  <div className="px-2 py-3 text-center text-xs text-slate-400">No projects in current list</div>
+                  <div className="px-2 py-3 text-center text-xs text-slate-400">
+                    {campaignGroups.length > 0
+                      ? 'No ungrouped projects — all are under Previous'
+                      : 'No projects in current list'}
+                  </div>
                 ) : (
                   projectFilterOptions.map((project) => (
                     <DropdownMenuCheckboxItem

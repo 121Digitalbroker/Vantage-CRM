@@ -19,7 +19,8 @@ export type LeadStatus =
   | 'Fake Query'
   | 'Not Interested'
   | 'Wrong Number'
-  | 'Low Budget';
+  | 'Low Budget'
+  | 'Switch off';
 
 export type LeadLevel = 'Hot' | 'Warm' | 'Cold';
 

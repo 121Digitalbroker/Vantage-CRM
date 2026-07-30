@@ -12,6 +12,13 @@ import { useRole } from '@/src/contexts/RoleContext';
 import { Lead } from '@/types';
 import { format, parseISO, startOfWeek, startOfMonth, startOfDay, compareAsc } from 'date-fns';
 import { Megaphone, ArrowUpRight, TrendingUp, TrendingDown, Users, UserCheck, PhoneCall } from 'lucide-react';
+import {
+  CAMPAIGN_GROUPS_KEY,
+  type CampaignGroup,
+  campaignLabel,
+  groupNameForLabel,
+  loadCampaignGroups,
+} from '@/src/services/campaignGroups';
 
 /** Manual campaigns with spend — same shape as Campaign Sources (`crm_campaigns`). */
 interface ManualCampaign {
@@ -49,14 +56,6 @@ function loadManualCampaignsFromStorage(): ManualCampaign[] {
   }
 }
 
-function campaignLabel(lead: Lead): string {
-  const c = (lead.campaignName || '').trim();
-  const s = (lead.leadSource || '').trim();
-  if (c) return c;
-  if (s) return s;
-  return 'Not specified';
-}
-
 function matchesManualCampaign(manualName: string, lead: Lead): boolean {
   const mn = manualName.trim().toLowerCase();
   if (!mn) return false;
@@ -82,6 +81,7 @@ export default function Reports() {
   const { telecallers } = useRole();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [manualCampaigns, setManualCampaigns] = useState<ManualCampaign[]>([]);
+  const [campaignGroups, setCampaignGroups] = useState<CampaignGroup[]>([]);
   const [timeframe, setTimeframe] = useState<'Day' | 'Week' | 'Month'>('Week');
 
   useEffect(() => {
@@ -89,10 +89,13 @@ export default function Reports() {
   }, []);
 
   useEffect(() => {
-    const refreshManual = () => setManualCampaigns(loadManualCampaignsFromStorage());
+    const refreshManual = () => {
+      setManualCampaigns(loadManualCampaignsFromStorage());
+      setCampaignGroups(loadCampaignGroups());
+    };
     refreshManual();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'crm_campaigns' || e.key === null) refreshManual();
+      if (e.key === 'crm_campaigns' || e.key === CAMPAIGN_GROUPS_KEY || e.key === null) refreshManual();
     };
     const onVis = () => {
       if (document.visibilityState === 'visible') refreshManual();
@@ -290,7 +293,8 @@ export default function Reports() {
     const remaining = leads.filter(l => !assigned.has(l.id));
     const byLabel = new Map<string, number>();
     remaining.forEach(l => {
-      const lab = campaignLabel(l);
+      const raw = campaignLabel(l);
+      const lab = groupNameForLabel(raw, campaignGroups) ?? raw;
       byLabel.set(lab, (byLabel.get(lab) || 0) + 1);
     });
     byLabel.forEach((count, name) => {
@@ -306,7 +310,7 @@ export default function Reports() {
     });
 
     return rows;
-  }, [leads, manualCampaigns]);
+  }, [leads, manualCampaigns, campaignGroups]);
 
   const campaignStats = useMemo(() => {
     const totalSpend = derivedCampaignRows.reduce((s, c) => s + c.spend, 0);

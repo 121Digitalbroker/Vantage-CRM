@@ -10,9 +10,9 @@ import { useRole } from '@/src/contexts/RoleContext';
 import type { AppUser } from '@/src/contexts/RoleContext';
 import type { Lead, LeadStatus } from '@/types';
 
-const CLOSED_STATUSES = new Set<LeadStatus>(['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query']);
+const CLOSED_STATUSES = new Set<LeadStatus>(['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Switch off']);
 /** Junk/dump-only statuses (excludes Not Interested — counted separately). Matches Leads page DUMP_STATUSES. */
-const DUMP_JUNK_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
+const DUMP_JUNK_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget', 'Switch off']);
 
 function localDateKey(iso: string): string {
   const d = new Date(iso);

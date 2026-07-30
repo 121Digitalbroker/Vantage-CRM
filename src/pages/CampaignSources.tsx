@@ -7,9 +7,13 @@ import {
   ExternalLink,
   RefreshCw,
   Users,
+  Trash2,
+  Layers,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -19,24 +23,27 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { fetchLeads, useDemoLeads } from '@/src/services/leadsService';
 import { supabase } from '@/lib/supabaseClient';
+import { useRole } from '@/src/contexts/RoleContext';
 import type { Lead } from '@/types';
+import {
+  CAMPAIGN_GROUPS_KEY,
+  type CampaignGroup,
+  campaignLabel,
+  claimedMemberLabels,
+  distinctCampaignLabels,
+  groupNameForLabel,
+  loadCampaignGroups,
+  saveCampaignGroups,
+} from '@/src/services/campaignGroups';
 
 interface ManualCampaign {
   id: string;
   name: string;
   platform: string;
   spend: number;
-}
-
-/** Display label from a lead (Facebook / CSV campaign or source). */
-function campaignLabel(lead: Lead): string {
-  const c = (lead.campaignName || '').trim();
-  const s = (lead.leadSource || '').trim();
-  if (c) return c;
-  if (s) return s;
-  return 'Not specified';
 }
 
 /** Whether a lead should count toward a manually named campaign in Settings. */
@@ -64,12 +71,18 @@ function inferPlatform(label: string): string {
 export default function CampaignSources() {
   const navigate = useNavigate();
   const demoLeads = useDemoLeads();
+  const { isAdmin } = useRole();
 
   const [manualCampaigns, setManualCampaigns] = useState<ManualCampaign[]>([]);
+  const [campaignGroups, setCampaignGroups] = useState<CampaignGroup[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [groupName, setGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
 
   const loadCampaignsFromStorage = useCallback(() => {
     const saved = localStorage.getItem('crm_campaigns');
@@ -83,6 +96,7 @@ export default function CampaignSources() {
     } else {
       setManualCampaigns([]);
     }
+    setCampaignGroups(loadCampaignGroups());
   }, []);
 
   const loadLeads = useCallback(async (isRefresh = false) => {
@@ -108,13 +122,14 @@ export default function CampaignSources() {
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'crm_campaigns' || e.key === null) loadCampaignsFromStorage();
+      if (e.key === 'crm_campaigns' || e.key === CAMPAIGN_GROUPS_KEY || e.key === null) {
+        loadCampaignsFromStorage();
+      }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [loadCampaignsFromStorage]);
 
-  // Supabase: keep campaign metrics in sync when leads change
   useEffect(() => {
     if (demoLeads) return;
 
@@ -134,6 +149,58 @@ export default function CampaignSources() {
     };
   }, [demoLeads, loadLeads]);
 
+  const availableLabels = useMemo(() => distinctCampaignLabels(leads), [leads]);
+  const claimed = useMemo(() => claimedMemberLabels(campaignGroups), [campaignGroups]);
+
+  const selectableLabels = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    return availableLabels.filter(label => {
+      if (claimed.has(label.trim().toLowerCase())) return false;
+      if (!q) return true;
+      return label.toLowerCase().includes(q);
+    });
+  }, [availableLabels, claimed, memberSearch]);
+
+  const toggleMember = (label: string) => {
+    setSelectedMembers(prev =>
+      prev.includes(label) ? prev.filter(m => m !== label) : [...prev, label]
+    );
+  };
+
+  const createGroup = () => {
+    const name = groupName.trim();
+    if (!name) {
+      toast.error('Enter a group name (e.g. previous campaign name)');
+      return;
+    }
+    if (selectedMembers.length < 2) {
+      toast.error('Select at least 2 campaigns to group');
+      return;
+    }
+    const nameTaken = campaignGroups.some(g => g.name.trim().toLowerCase() === name.toLowerCase());
+    if (nameTaken) {
+      toast.error('A group with this name already exists');
+      return;
+    }
+    const next: CampaignGroup[] = [
+      ...campaignGroups,
+      { id: `grp-${Date.now()}`, name, members: [...selectedMembers] },
+    ];
+    saveCampaignGroups(next);
+    setCampaignGroups(next);
+    setGroupName('');
+    setSelectedMembers([]);
+    setMemberSearch('');
+    toast.success(`Grouped ${selectedMembers.length} campaigns as “${name}”`);
+  };
+
+  const deleteGroup = (id: string) => {
+    const next = campaignGroups.filter(g => g.id !== id);
+    saveCampaignGroups(next);
+    setCampaignGroups(next);
+    toast.success('Campaign group removed');
+  };
+
   const totalSpend = useMemo(
     () => manualCampaigns.reduce((sum, c) => sum + (Number(c.spend) || 0), 0),
     [manualCampaigns]
@@ -152,6 +219,8 @@ export default function CampaignSources() {
     leadCount: number;
     cpl: number;
     fromSettings: boolean;
+    isGroup?: boolean;
+    memberCount?: number;
   };
 
   const tableRows = useMemo((): TableRow[] => {
@@ -171,9 +240,13 @@ export default function CampaignSources() {
     for (const lead of leads) {
       const mid = matchedManualId.get(lead.id);
       if (mid) continue;
-      const label = campaignLabel(lead);
+      const raw = campaignLabel(lead);
+      const grouped = groupNameForLabel(raw, campaignGroups);
+      const label = grouped ?? raw;
       unmatchedByLabel.set(label, (unmatchedByLabel.get(label) ?? 0) + 1);
     }
+
+    const groupByName = new Map(campaignGroups.map(g => [g.name, g]));
 
     const rows: TableRow[] = [];
 
@@ -196,6 +269,7 @@ export default function CampaignSources() {
       if (count === 0) continue;
       const ll = label.trim().toLowerCase();
       if (manualNamesLower.has(ll)) continue;
+      const group = groupByName.get(label);
       rows.push({
         key: `lead-${label}`,
         name: label,
@@ -204,6 +278,8 @@ export default function CampaignSources() {
         leadCount: count,
         cpl: 0,
         fromSettings: false,
+        isGroup: !!group,
+        memberCount: group?.members.length,
       });
     }
 
@@ -213,7 +289,7 @@ export default function CampaignSources() {
     });
 
     return rows;
-  }, [leads, manualCampaigns]);
+  }, [leads, manualCampaigns, campaignGroups]);
 
   const formatMoney = (n: number) =>
     `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
@@ -303,6 +379,146 @@ export default function CampaignSources() {
         </Card>
       </div>
 
+      {isAdmin && (
+        <Card className="bg-white border-slate-200 shadow-sm rounded-xl">
+          <CardHeader className="border-b border-slate-200 py-4">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Layers className="w-4 h-4 text-blue-500" />
+              Group Campaigns
+            </CardTitle>
+            <CardDescription>
+              Admin only — combine several Meta/CSV campaign names under one previous-campaign name
+              (e.g. “Gaur Chrysalis_26 July…” + “Gaur Chrysalis_27 July…” → “Gaur Chrysalis”).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5 p-6">
+            <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="group_name" className="text-xs text-slate-700 font-medium">
+                    Group name (previous campaign)
+                  </Label>
+                  <Input
+                    id="group_name"
+                    placeholder="e.g. Gaur Chrysalis"
+                    value={groupName}
+                    onChange={e => setGroupName(e.target.value)}
+                    className="bg-white border-slate-200 focus-visible:ring-blue-500 text-sm"
+                  />
+                </div>
+                <Button
+                  onClick={createGroup}
+                  className="bg-blue-500 hover:bg-blue-600 text-white h-9"
+                  disabled={selectedMembers.length < 2 || !groupName.trim()}
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Create group ({selectedMembers.length})
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <Label className="text-xs text-slate-700 font-medium">
+                    Select campaigns to include (min 2)
+                  </Label>
+                  <Input
+                    placeholder="Search campaigns…"
+                    value={memberSearch}
+                    onChange={e => setMemberSearch(e.target.value)}
+                    className="bg-white border-slate-200 h-8 text-sm sm:max-w-[220px]"
+                  />
+                </div>
+                {selectedMembers.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedMembers.map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => toggleMember(m)}
+                        className="text-[0.7rem] px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200"
+                        title="Remove"
+                      >
+                        {m} ×
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white divide-y divide-slate-100">
+                  {selectableLabels.length === 0 ? (
+                    <p className="text-sm text-slate-500 p-3 text-center">
+                      {availableLabels.length === 0
+                        ? 'No campaign names on leads yet.'
+                        : 'No ungrouped campaigns match your search.'}
+                    </p>
+                  ) : (
+                    selectableLabels.map(label => {
+                      const checked = selectedMembers.includes(label);
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => toggleMember(label)}
+                          className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 ${
+                            checked ? 'bg-blue-50/80' : ''
+                          }`}
+                        >
+                          <span
+                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 text-[0.65rem] ${
+                              checked
+                                ? 'bg-blue-500 border-blue-500 text-white'
+                                : 'border-slate-300 text-transparent'
+                            }`}
+                          >
+                            ✓
+                          </span>
+                          <span className="truncate text-slate-800" title={label}>
+                            {label}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-900">Active groups</h4>
+              {campaignGroups.length === 0 ? (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-center">
+                  <p className="text-sm text-slate-500">No campaign groups yet</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {campaignGroups.map(g => (
+                    <div
+                      key={g.id}
+                      className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-900">{g.name}</p>
+                        <p className="text-xs text-slate-500 mt-1 break-words">
+                          {g.members.join(' · ')}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
+                        onClick={() => deleteGroup(g.id)}
+                        aria-label={`Delete group ${g.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="px-6 py-3 border-b border-slate-100 flex items-center justify-between">
           <p className="text-sm font-medium text-slate-700">Campaign performance</p>
@@ -347,7 +563,15 @@ export default function CampaignSources() {
                 <TableRow key={row.key} className="border-b border-slate-200">
                   <TableCell className="px-6 py-4">
                     <span className="font-medium text-slate-900">{row.name}</span>
-                    {!row.fromSettings && (
+                    {row.fromSettings && (
+                      <span className="ml-2 text-[0.65rem] uppercase tracking-wide text-slate-400">settings</span>
+                    )}
+                    {row.isGroup && (
+                      <span className="ml-2 text-[0.65rem] uppercase tracking-wide text-blue-500">
+                        group{row.memberCount ? ` · ${row.memberCount}` : ''}
+                      </span>
+                    )}
+                    {!row.fromSettings && !row.isGroup && (
                       <span className="ml-2 text-[0.65rem] uppercase tracking-wide text-slate-400">from leads</span>
                     )}
                   </TableCell>
@@ -359,7 +583,7 @@ export default function CampaignSources() {
                     {row.spend > 0 ? formatMoney(row.spend) : '—'}
                   </TableCell>
                   <TableCell className="px-6 py-4 text-right text-slate-700 tabular-nums">
-                    {row.leadCount > 0 && row.spend > 0 ? formatMoney(row.cpl) : row.leadCount > 0 ? '—' : '—'}
+                    {row.leadCount > 0 && row.spend > 0 ? formatMoney(row.cpl) : '—'}
                   </TableCell>
                 </TableRow>
               ))
@@ -367,7 +591,7 @@ export default function CampaignSources() {
           </TableBody>
         </Table>
         <div className="px-6 py-3 border-t border-slate-100 text-xs text-slate-400">
-          Leads are matched to Settings campaigns by name (campaign or source). Unmatched leads appear as separate rows.
+          Leads match Settings campaigns by name. Admin groups combine multiple campaign names under one label.
           {!demoLeads && ' Updates automatically when leads change in Supabase.'}
         </div>
       </div>

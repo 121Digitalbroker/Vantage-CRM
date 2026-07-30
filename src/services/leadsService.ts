@@ -34,7 +34,7 @@ import { notificationService } from '@/src/services/notificationService';
 
 const VALID_STATUSES: LeadStatus[] = [
   'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
-  'Not Interested', 'Wrong Number', 'Low Budget',
+  'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
 
 /** Map old CRM status strings from DB/imports to current statuses */

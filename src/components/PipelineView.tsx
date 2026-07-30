@@ -24,7 +24,7 @@ import { Lead, LeadStatus } from '@/types';
 import { updateLeadWithAudit } from '@/src/services/leadsService';
 
 /** Dump / disqualified only — Not Interested is a separate outcome (no dump grace on Leads). */
-const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
+const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget', 'Switch off']);
 
 function farFutureFollowUpIso(): string {
   return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -43,6 +43,7 @@ const PIPELINE_STAGES: { id: LeadStatus; label: string; color: string; bg: strin
   { id: 'Not Interested', label: 'Not Interested', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
   { id: 'Wrong Number', label: 'Wrong Number', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },
   { id: 'Low Budget', label: 'Low Budget', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200' },
+  { id: 'Switch off', label: 'Switch off', color: 'text-zinc-700', bg: 'bg-zinc-100', border: 'border-zinc-300' },
 ];
 
 const getLevelDot = (level: string) => {

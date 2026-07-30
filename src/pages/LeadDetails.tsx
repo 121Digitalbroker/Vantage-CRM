@@ -25,7 +25,7 @@ import { useRole } from '@/src/contexts/RoleContext';
 
 const LEAD_STATUSES: LeadStatus[] = [
   'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
-  'Not Interested', 'Wrong Number', 'Low Budget',
+  'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 
@@ -48,6 +48,7 @@ const getStatusBadgeColor = (status: LeadStatus) => {
     case 'Not Interested': return 'bg-red-100 text-red-800 border-red-200';
     case 'Wrong Number': return 'bg-gray-100 text-gray-800 border-gray-200';
     case 'Low Budget': return 'bg-yellow-100 text-yellow-900 border-yellow-200';
+    case 'Switch off': return 'bg-zinc-200 text-zinc-800 border-zinc-300';
     default: return 'bg-gray-100 text-gray-800 border-gray-200';
   }
 };

@@ -35,9 +35,9 @@ const PIPELINE_FUNNEL_STAGES: LeadStatus[] = [
   'Not Reachable',
 ];
 
-const DUMP_JUNK_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
+const DUMP_JUNK_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget', 'Switch off']);
 
-const CLOSED_STATUSES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Not Reachable'];
+const CLOSED_STATUSES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Not Reachable', 'Switch off'];
 
 /** Primary “success” stage for KPIs (replaces legacy Booked) */
 const VISIT_SCHEDULED: LeadStatus = 'Site Visit Scheduled';

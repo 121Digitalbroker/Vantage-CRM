@@ -23,6 +23,7 @@ const VALID_STATUSES: Lead['status'][] = [
   'Not Interested',
   'Wrong Number',
   'Low Budget',
+  'Switch off',
 ];
 
 export interface DemoNote {

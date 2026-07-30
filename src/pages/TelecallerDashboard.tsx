@@ -52,11 +52,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 const LEAD_STATUSES: LeadStatus[] = [
   'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
-  'Not Interested', 'Wrong Number', 'Low Budget',
+  'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
 
 /** Disqualified / junk — drop from workload after short grace (dump), not "Not Interested" */
-const DUMP_DISPOSAL_STATUSES: LeadStatus[] = ['Fake Query', 'Wrong Number', 'Low Budget'];
+const DUMP_DISPOSAL_STATUSES: LeadStatus[] = ['Fake Query', 'Wrong Number', 'Low Budget', 'Switch off'];
 
 function isDumpDisposalStatus(status: LeadStatus): boolean {
   return DUMP_DISPOSAL_STATUSES.includes(status);
@@ -86,6 +86,7 @@ const getStatusColors = (status: LeadStatus) => {
     case 'Not Interested': return 'bg-red-100 text-red-700';
     case 'Wrong Number': return 'bg-gray-100 text-gray-600';
     case 'Low Budget': return 'bg-yellow-100 text-yellow-700';
+    case 'Switch off': return 'bg-zinc-200 text-zinc-700';
     default: return 'bg-gray-100 text-gray-700';
   }
 };

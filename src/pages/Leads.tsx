@@ -28,6 +28,17 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Lead, LeadStatus, LeadLevel, InvestmentBudget } from '@/types';
 import {
+  CAMPAIGN_GROUPS_KEY,
+  type CampaignGroup,
+  PREVIOUS_FILTER_ALL,
+  PREVIOUS_GROUP_PREFIX,
+  isPreviousFilterToken,
+  leadMatchesPreviousFilter,
+  loadCampaignGroups,
+  previousGroupFilterToken,
+  previousGroupNameForLead,
+} from '@/src/services/campaignGroups';
+import {
   fetchLeads,
   fetchLeadsAssignedToAny,
   createLead,
@@ -47,14 +58,15 @@ import { useRole, isManagerKindRole } from '@/src/contexts/RoleContext';
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEAD_STATUSES: LeadStatus[] = [
   'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
-  'Not Interested', 'Wrong Number', 'Low Budget',
+  'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
+
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
 const LEAD_SOURCES = ['Meta Ads', 'Google Ads', 'Website', 'Referral', 'Salesperson'];
 const PROJECTS = ['Sunset Villas', 'Downtown Heights', 'Oceanside Apartments', 'Green Meadows', 'Skyline Towers', 'Lakeview Residency'];
 const INVESTMENT_BUDGETS: InvestmentBudget[] = ['Below ₹50L', '₹50L - ₹1Cr', 'Above ₹1Cr', 'Not Specified'];
 /** Junk / invalid — grace period on Active list after marking (short hide animation). */
-const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget']);
+const DUMP_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget', 'Switch off']);
 /** Disqualified / closed outcomes: Dump filter + hidden from Active (same for every role). Includes Not Interested. */
 const DUMP_VIEW_STATUSES = new Set<LeadStatus>([...DUMP_STATUSES, 'Not Interested']);
 /** After marking dump, row stays in "Active" list this long before disappearing */
@@ -132,6 +144,7 @@ const getStatusColors = (status: LeadStatus) => {
     case 'Not Interested': return 'bg-red-100 text-red-700';
     case 'Wrong Number': return 'bg-gray-100 text-gray-600';
     case 'Low Budget': return 'bg-yellow-100 text-yellow-700';
+    case 'Switch off': return 'bg-zinc-200 text-zinc-700';
     default: return 'bg-gray-100 text-gray-700';
   }
 };
@@ -164,7 +177,7 @@ const parseImportedStatus = (raw: string): LeadStatus => {
   if (!value) return 'New';
   const valid = new Set<LeadStatus>([
     'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
-    'Not Interested', 'Wrong Number', 'Low Budget',
+    'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
   ]);
   if (valid.has(value as LeadStatus)) return value as LeadStatus;
   const legacy: Record<string, LeadStatus> = {
@@ -218,6 +231,7 @@ export default function Leads() {
   const [projectFilter, setProjectFilter] = useState<string[]>(() =>
     normalizeSavedProjectFilter(savedFilters.projectFilter)
   );
+  const [campaignGroups, setCampaignGroups] = useState<CampaignGroup[]>(() => loadCampaignGroups());
   const [assigneeFilter, setAssigneeFilter] = useState(savedFilters.assigneeFilter ?? 'All');
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>(savedFilters.dumpFilter ?? 'Active');
   /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
@@ -367,6 +381,21 @@ export default function Leads() {
     const q = searchParams.get('q');
     if (q !== null) setSearchTerm(q);
   }, [searchParams]);
+
+  useEffect(() => {
+    const refreshGroups = () => setCampaignGroups(loadCampaignGroups());
+    refreshGroups();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === CAMPAIGN_GROUPS_KEY || e.key === null) refreshGroups();
+    };
+    const onFocus = () => refreshGroups();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
 
   useEffect(() => {
     const snapshot: LeadsFilterSnapshot = {
@@ -937,8 +966,13 @@ export default function Leads() {
         || (lead.campaignName ?? '').toLowerCase().includes(q);
       const matchesStatus = statusFilter === 'All' || lead.status === statusFilter;
       const matchesLevel = levelFilter === 'All' || lead.leadLevel === levelFilter;
+      const previousTokens = projectFilter.filter(isPreviousFilterToken);
+      const realProjects = projectFilter.filter(p => !isPreviousFilterToken(p));
       const matchesProject =
-        projectFilter.length === 0 || projectFilter.includes(lead.project);
+        projectFilter.length === 0 ||
+        (realProjects.length > 0 && realProjects.includes(lead.project)) ||
+        (previousTokens.length > 0 &&
+          leadMatchesPreviousFilter(lead, previousTokens, campaignGroups));
       const matchesAssignee =
         assigneeFilter === 'All'
         || (assigneeFilter === '__unassigned__'
@@ -990,7 +1024,7 @@ export default function Leads() {
 
       return matchesSearch && matchesStatus && matchesLevel && matchesProject && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
+  }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, campaignGroups, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
 
   const projectFilterOptions = useMemo(() => {
     const projectNames: string[] = leads.reduce<string[]>((acc, lead) => {
@@ -1007,10 +1041,23 @@ export default function Leads() {
     if (n === 0) return 'All projects';
     if (n === 1) {
       const s = projectFilter[0];
+      if (s === PREVIOUS_FILTER_ALL) return 'Previous';
+      if (s.startsWith(PREVIOUS_GROUP_PREFIX)) {
+        const id = s.slice(PREVIOUS_GROUP_PREFIX.length);
+        const g = campaignGroups.find(x => x.id === id);
+        const name = g?.name ?? 'Previous';
+        return name.length > 32 ? `${name.slice(0, 30)}…` : name;
+      }
       return s.length > 32 ? `${s.slice(0, 30)}…` : s;
     }
+    const onlyPrevious =
+      projectFilter.every(isPreviousFilterToken) &&
+      projectFilter.includes(PREVIOUS_FILTER_ALL);
+    if (onlyPrevious) return 'Previous';
+    const prevCount = projectFilter.filter(isPreviousFilterToken).length;
+    if (prevCount === n) return `${n} previous selected`;
     return `${n} projects selected`;
-  }, [projectFilter]);
+  }, [projectFilter, campaignGroups]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -1274,6 +1321,59 @@ export default function Leads() {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
+                  Previous
+                </DropdownMenuLabel>
+                {campaignGroups.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-slate-400">
+                    No groups yet — create them in Campaign Sources
+                  </div>
+                ) : (
+                  <>
+                    <DropdownMenuCheckboxItem
+                      checked={projectFilter.includes(PREVIOUS_FILTER_ALL)}
+                      onCheckedChange={(checked) => {
+                        setProjectFilter((prev) => {
+                          const withoutPrev = prev.filter(p => !isPreviousFilterToken(p));
+                          if (checked) return [...withoutPrev, PREVIOUS_FILTER_ALL];
+                          return withoutPrev;
+                        });
+                      }}
+                      className="text-xs font-medium"
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      Previous (all groups)
+                    </DropdownMenuCheckboxItem>
+                    {campaignGroups.map((g) => {
+                      const token = previousGroupFilterToken(g.id);
+                      const allSelected = projectFilter.includes(PREVIOUS_FILTER_ALL);
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={g.id}
+                          checked={allSelected || projectFilter.includes(token)}
+                          disabled={allSelected}
+                          onCheckedChange={(checked) => {
+                            setProjectFilter((prev) => {
+                              const withoutAll = prev.filter(p => p !== PREVIOUS_FILTER_ALL);
+                              if (checked) {
+                                return withoutAll.includes(token) ? withoutAll : [...withoutAll, token];
+                              }
+                              return withoutAll.filter(p => p !== token);
+                            });
+                          }}
+                          className="text-xs"
+                          onSelect={(e) => e.preventDefault()}
+                        >
+                          <span className="line-clamp-2 break-words pr-1">{g.name}</span>
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
+                  All projects
+                </DropdownMenuLabel>
                 {projectFilterOptions.length === 0 ? (
                   <div className="px-2 py-3 text-center text-xs text-slate-400">No projects in current list</div>
                 ) : (
@@ -1365,7 +1465,7 @@ export default function Leads() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="Active">Active (excl. dump & Not Interested)</SelectItem>
-                <SelectItem value="Dump">Dump: Fake / Wrong # / Low budget / Not Interested</SelectItem>
+                <SelectItem value="Dump">Dump: Fake / Wrong # / Low budget / Switch off / Not Interested</SelectItem>
                 <SelectItem value="All">All Leads</SelectItem>
               </SelectContent>
             </Select>
@@ -1537,16 +1637,33 @@ export default function Leads() {
                         </div>
                       </TableCell>
 
-                      <TableCell className="px-4 py-3 whitespace-nowrap max-w-[200px]">
-                        <div className="flex items-center gap-1.5 max-w-[200px]">
-                          <span className={`shrink-0 text-[0.65rem] font-semibold px-1.5 py-0.5 rounded border ${getSourceLabel(lead.leadSource)}`}>
-                            {lead.leadSource || 'Unknown'}
-                          </span>
-                          {lead.campaignName ? (
-                            <span className="text-[0.68rem] text-slate-500 truncate" title={[lead.campaignName, lead.adsetName, lead.adName].filter(Boolean).join(' · ')}>
-                              {lead.campaignName}
+                      <TableCell className="px-4 py-3 max-w-[200px]">
+                        <div className="flex flex-col gap-0.5 max-w-[200px] min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`shrink-0 text-[0.65rem] font-semibold px-1.5 py-0.5 rounded border ${getSourceLabel(lead.leadSource)}`}>
+                              {lead.leadSource || 'Unknown'}
                             </span>
-                          ) : null}
+                            {lead.campaignName ? (
+                              <span className="text-[0.68rem] text-slate-500 truncate" title={[lead.campaignName, lead.adsetName, lead.adName].filter(Boolean).join(' · ')}>
+                                {lead.campaignName}
+                              </span>
+                            ) : null}
+                          </div>
+                          {(() => {
+                            const prevName = previousGroupNameForLead(lead, campaignGroups);
+                            if (!prevName) return null;
+                            return (
+                              <span
+                                className="inline-flex w-fit max-w-full items-center gap-1 text-[0.6rem] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-slate-100 text-slate-600 border-slate-200"
+                                title={`Previous campaign group: ${prevName}`}
+                              >
+                                Previous
+                                <span className="font-medium normal-case tracking-normal text-slate-500 truncate max-w-[120px]">
+                                  · {prevName}
+                                </span>
+                              </span>
+                            );
+                          })()}
                         </div>
                       </TableCell>
 

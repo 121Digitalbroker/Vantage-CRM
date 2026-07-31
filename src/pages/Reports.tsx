@@ -16,6 +16,7 @@ import {
   CAMPAIGN_GROUPS_KEY,
   type CampaignGroup,
   campaignLabel,
+  fetchCampaignGroups,
   groupNameForLabel,
   loadCampaignGroups,
 } from '@/src/services/campaignGroups';
@@ -89,23 +90,33 @@ export default function Reports() {
   }, []);
 
   useEffect(() => {
-    const refreshManual = () => {
-      setManualCampaigns(loadManualCampaignsFromStorage());
-      setCampaignGroups(loadCampaignGroups());
+    const refreshManual = () => setManualCampaigns(loadManualCampaignsFromStorage());
+    const refreshGroups = async () => {
+      try {
+        setCampaignGroups(await fetchCampaignGroups());
+      } catch {
+        setCampaignGroups(loadCampaignGroups());
+      }
+    };
+    const onFocus = () => {
+      refreshManual();
+      void refreshGroups();
     };
     refreshManual();
+    void refreshGroups();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'crm_campaigns' || e.key === CAMPAIGN_GROUPS_KEY || e.key === null) refreshManual();
+      if (e.key === 'crm_campaigns' || e.key === null) refreshManual();
+      if (e.key === CAMPAIGN_GROUPS_KEY || e.key === null) void refreshGroups();
     };
     const onVis = () => {
-      if (document.visibilityState === 'visible') refreshManual();
+      if (document.visibilityState === 'visible') onFocus();
     };
     window.addEventListener('storage', onStorage);
-    window.addEventListener('focus', refreshManual);
+    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVis);
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('focus', refreshManual);
+      window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVis);
     };
   }, []);

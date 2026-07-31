@@ -34,9 +34,9 @@ import {
   campaignLabel,
   claimedMemberLabels,
   distinctCampaignLabels,
+  fetchCampaignGroups,
   groupNameForLabel,
-  loadCampaignGroups,
-  saveCampaignGroups,
+  persistCampaignGroups,
 } from '@/src/services/campaignGroups';
 
 interface ManualCampaign {
@@ -96,7 +96,15 @@ export default function CampaignSources() {
     } else {
       setManualCampaigns([]);
     }
-    setCampaignGroups(loadCampaignGroups());
+  }, []);
+
+  const refreshCampaignGroups = useCallback(async () => {
+    try {
+      const groups = await fetchCampaignGroups();
+      setCampaignGroups(groups);
+    } catch {
+      setCampaignGroups([]);
+    }
   }, []);
 
   const loadLeads = useCallback(async (isRefresh = false) => {
@@ -117,18 +125,23 @@ export default function CampaignSources() {
 
   useEffect(() => {
     loadCampaignsFromStorage();
+    void refreshCampaignGroups();
     void loadLeads(false);
-  }, [loadLeads, loadCampaignsFromStorage]);
+  }, [loadLeads, loadCampaignsFromStorage, refreshCampaignGroups]);
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'crm_campaigns' || e.key === CAMPAIGN_GROUPS_KEY || e.key === null) {
-        loadCampaignsFromStorage();
-      }
+      if (e.key === 'crm_campaigns' || e.key === null) loadCampaignsFromStorage();
+      if (e.key === CAMPAIGN_GROUPS_KEY || e.key === null) void refreshCampaignGroups();
     };
+    const onFocus = () => void refreshCampaignGroups();
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [loadCampaignsFromStorage]);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [loadCampaignsFromStorage, refreshCampaignGroups]);
 
   useEffect(() => {
     if (demoLeads) return;
@@ -167,7 +180,7 @@ export default function CampaignSources() {
     );
   };
 
-  const createGroup = () => {
+  const createGroup = async () => {
     const name = groupName.trim();
     if (!name) {
       toast.error('Enter a group name (e.g. previous campaign name)');
@@ -186,19 +199,27 @@ export default function CampaignSources() {
       ...campaignGroups,
       { id: `grp-${Date.now()}`, name, members: [...selectedMembers] },
     ];
-    saveCampaignGroups(next);
-    setCampaignGroups(next);
-    setGroupName('');
-    setSelectedMembers([]);
-    setMemberSearch('');
-    toast.success(`Grouped ${selectedMembers.length} campaigns as “${name}”`);
+    try {
+      await persistCampaignGroups(next);
+      setCampaignGroups(next);
+      setGroupName('');
+      setSelectedMembers([]);
+      setMemberSearch('');
+      toast.success(`Grouped ${selectedMembers.length} campaigns as “${name}” — visible to all users`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save campaign group');
+    }
   };
 
-  const deleteGroup = (id: string) => {
+  const deleteGroup = async (id: string) => {
     const next = campaignGroups.filter(g => g.id !== id);
-    saveCampaignGroups(next);
-    setCampaignGroups(next);
-    toast.success('Campaign group removed');
+    try {
+      await persistCampaignGroups(next);
+      setCampaignGroups(next);
+      toast.success('Campaign group removed');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove campaign group');
+    }
   };
 
   const totalSpend = useMemo(
@@ -311,6 +332,7 @@ export default function CampaignSources() {
             disabled={loading || refreshing}
             onClick={() => {
               loadCampaignsFromStorage();
+              void refreshCampaignGroups();
               void loadLeads(true);
             }}
           >

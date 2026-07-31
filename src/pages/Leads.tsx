@@ -34,6 +34,7 @@ import {
   PREVIOUS_GROUP_PREFIX,
   isPreviousFilterToken,
   leadMatchesPreviousFilter,
+  fetchCampaignGroups,
   loadCampaignGroups,
   previousGroupFilterToken,
   previousGroupNameForLead,
@@ -384,15 +385,24 @@ export default function Leads() {
   }, [searchParams]);
 
   useEffect(() => {
-    const refreshGroups = () => setCampaignGroups(loadCampaignGroups());
-    refreshGroups();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === CAMPAIGN_GROUPS_KEY || e.key === null) refreshGroups();
+    let cancelled = false;
+    const refreshGroups = async () => {
+      try {
+        const groups = await fetchCampaignGroups();
+        if (!cancelled) setCampaignGroups(groups);
+      } catch {
+        if (!cancelled) setCampaignGroups(loadCampaignGroups());
+      }
     };
-    const onFocus = () => refreshGroups();
+    void refreshGroups();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === CAMPAIGN_GROUPS_KEY || e.key === null) void refreshGroups();
+    };
+    const onFocus = () => void refreshGroups();
     window.addEventListener('storage', onStorage);
     window.addEventListener('focus', onFocus);
     return () => {
+      cancelled = true;
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('focus', onFocus);
     };

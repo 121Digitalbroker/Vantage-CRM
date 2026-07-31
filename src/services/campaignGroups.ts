@@ -1,6 +1,9 @@
 import type { Lead } from '@/types';
+import { supabase } from '@/lib/supabaseClient';
+import { useDemoLeads } from '@/src/services/leadsService';
 
 export const CAMPAIGN_GROUPS_KEY = 'crm_campaign_groups';
+const TABLE = 'crm_campaign_groups';
 
 /** Admin-defined display name that rolls up multiple Meta/CSV campaign labels. */
 export interface CampaignGroup {
@@ -17,34 +20,147 @@ export function campaignLabel(lead: Lead): string {
   return 'Not specified';
 }
 
+function normalizeGroups(raw: unknown): CampaignGroup[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (g): g is CampaignGroup =>
+        !!g &&
+        typeof g === 'object' &&
+        typeof (g as CampaignGroup).id === 'string' &&
+        typeof (g as CampaignGroup).name === 'string' &&
+        Array.isArray((g as CampaignGroup).members)
+    )
+    .map(g => ({
+      id: g.id,
+      name: g.name.trim(),
+      members: g.members.map(m => String(m).trim()).filter(Boolean),
+    }))
+    .filter(g => g.name.length > 0);
+}
+
+/** Sync read from this browser only (cache / demo). Prefer `fetchCampaignGroups`. */
 export function loadCampaignGroups(): CampaignGroup[] {
   try {
     const raw = localStorage.getItem(CAMPAIGN_GROUPS_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (g): g is CampaignGroup =>
-          !!g &&
-          typeof g === 'object' &&
-          typeof (g as CampaignGroup).id === 'string' &&
-          typeof (g as CampaignGroup).name === 'string' &&
-          Array.isArray((g as CampaignGroup).members)
-      )
-      .map(g => ({
-        id: g.id,
-        name: g.name.trim(),
-        members: g.members.map(m => String(m).trim()).filter(Boolean),
-      }))
-      .filter(g => g.name.length > 0);
+    return normalizeGroups(JSON.parse(raw));
   } catch {
     return [];
   }
 }
 
+/** Sync write to this browser only. Prefer `persistCampaignGroups`. */
 export function saveCampaignGroups(groups: CampaignGroup[]): void {
   localStorage.setItem(CAMPAIGN_GROUPS_KEY, JSON.stringify(groups));
+}
+
+function isMissingGroupsTableError(error: { message?: string; code?: string; details?: string }): boolean {
+  const code = String(error?.code ?? '');
+  const blob = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
+  return (
+    code === 'PGRST205'
+    || code === '42P01'
+    || blob.includes('schema cache')
+    || blob.includes('could not find the table')
+    || (blob.includes('relation') && blob.includes('does not exist'))
+  );
+}
+
+function rowToGroup(row: { id: string; name: string; members: unknown }): CampaignGroup {
+  const members = Array.isArray(row.members)
+    ? row.members.map(m => String(m).trim()).filter(Boolean)
+    : [];
+  return { id: String(row.id), name: String(row.name ?? '').trim(), members };
+}
+
+/**
+ * Load Previous campaign groups shared for all users (Supabase).
+ * Falls back to localStorage if the table is missing; migrates local groups up once.
+ */
+export async function fetchCampaignGroups(): Promise<CampaignGroup[]> {
+  if (useDemoLeads()) {
+    return loadCampaignGroups();
+  }
+
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('id, name, members')
+    .order('name', { ascending: true });
+
+  if (error) {
+    if (isMissingGroupsTableError(error)) {
+      console.warn(
+        '[CRM] crm_campaign_groups missing; using localStorage. Run supabase-crm-campaign-groups.sql.',
+        error.message
+      );
+      return loadCampaignGroups();
+    }
+    console.warn('[CRM] Failed to load campaign groups:', error.message);
+    return loadCampaignGroups();
+  }
+
+  const remote = (data ?? []).map(rowToGroup).filter(g => g.name.length > 0);
+
+  // One-time: Admin already had groups only in this browser — push them to Supabase.
+  if (remote.length === 0) {
+    const local = loadCampaignGroups();
+    if (local.length > 0) {
+      try {
+        await persistCampaignGroups(local);
+        return local;
+      } catch (e) {
+        console.warn('[CRM] Could not migrate local campaign groups to Supabase:', e);
+        return local;
+      }
+    }
+  }
+
+  saveCampaignGroups(remote);
+  return remote;
+}
+
+/** Save groups for all users (Supabase) and cache locally. */
+export async function persistCampaignGroups(groups: CampaignGroup[]): Promise<void> {
+  const normalized = normalizeGroups(groups);
+  saveCampaignGroups(normalized);
+
+  if (useDemoLeads()) return;
+
+  const { data: existing, error: readError } = await supabase.from(TABLE).select('id');
+  if (readError) {
+    if (isMissingGroupsTableError(readError)) {
+      console.warn(
+        '[CRM] crm_campaign_groups missing; saved locally only. Run supabase-crm-campaign-groups.sql.',
+        readError.message
+      );
+      return;
+    }
+    throw new Error(readError.message);
+  }
+
+  const keepIds = new Set(normalized.map(g => g.id));
+  const toDelete = (existing ?? [])
+    .map(r => String(r.id))
+    .filter(id => !keepIds.has(id));
+
+  if (toDelete.length > 0) {
+    const { error: delError } = await supabase.from(TABLE).delete().in('id', toDelete);
+    if (delError) throw new Error(delError.message);
+  }
+
+  if (normalized.length === 0) return;
+
+  const { error: upsertError } = await supabase.from(TABLE).upsert(
+    normalized.map(g => ({
+      id: g.id,
+      name: g.name,
+      members: g.members,
+      updated_at: new Date().toISOString(),
+    })),
+    { onConflict: 'id' }
+  );
+  if (upsertError) throw new Error(upsertError.message);
 }
 
 /** Distinct campaign/source/project labels from leads, sorted. */

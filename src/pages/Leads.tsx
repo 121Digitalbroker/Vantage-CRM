@@ -79,8 +79,10 @@ type LeadsFilterSnapshot = {
   searchTerm: string;
   statusFilter: string;
   levelFilter: string;
-  /** Empty = all projects */
+  /** Empty = all projects (project names only) */
   projectFilter: string[];
+  /** Empty = all campaigns; may include Previous group tokens */
+  campaignFilter: string[];
   assigneeFilter: string;
   dumpFilter: 'Active' | 'Dump' | 'All';
   dateFilterField: 'none' | 'createdAt' | 'followUpDate';
@@ -230,9 +232,20 @@ export default function Leads() {
   const [searchTerm, setSearchTerm] = useState(querySearch ?? savedFilters.searchTerm ?? '');
   const [statusFilter, setStatusFilter] = useState(savedFilters.statusFilter ?? 'All');
   const [levelFilter, setLevelFilter] = useState(savedFilters.levelFilter ?? 'All');
-  const [projectFilter, setProjectFilter] = useState<string[]>(() =>
-    normalizeSavedProjectFilter(savedFilters.projectFilter)
-  );
+  const [projectFilter, setProjectFilter] = useState<string[]>(() => {
+    const raw = normalizeSavedProjectFilter(savedFilters.projectFilter);
+    // Previous tokens used to live on project filter — move them to campaign filter.
+    return raw.filter(p => !isPreviousFilterToken(p));
+  });
+  const [campaignFilter, setCampaignFilter] = useState<string[]>(() => {
+    const fromCampaign = normalizeSavedProjectFilter(
+      (savedFilters as Partial<LeadsFilterSnapshot>).campaignFilter
+    );
+    const migratedPrev = normalizeSavedProjectFilter(savedFilters.projectFilter).filter(
+      isPreviousFilterToken
+    );
+    return [...new Set([...fromCampaign, ...migratedPrev])];
+  });
   const [campaignGroups, setCampaignGroups] = useState<CampaignGroup[]>(() => loadCampaignGroups());
   const [assigneeFilter, setAssigneeFilter] = useState(savedFilters.assigneeFilter ?? 'All');
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>(savedFilters.dumpFilter ?? 'Active');
@@ -414,6 +427,7 @@ export default function Leads() {
       statusFilter,
       levelFilter,
       projectFilter,
+      campaignFilter,
       assigneeFilter,
       dumpFilter,
       dateFilterField,
@@ -429,6 +443,7 @@ export default function Leads() {
     statusFilter,
     levelFilter,
     projectFilter,
+    campaignFilter,
     assigneeFilter,
     dumpFilter,
     dateFilterField,
@@ -577,6 +592,7 @@ export default function Leads() {
       setStatusFilter('All');
       setLevelFilter('All');
       setProjectFilter([]);
+      setCampaignFilter([]);
       setAssigneeFilter('All');
       setSearchTerm('');
       setDateFilterField('none');
@@ -977,11 +993,17 @@ export default function Leads() {
         || (lead.campaignName ?? '').toLowerCase().includes(q);
       const matchesStatus = statusFilter === 'All' || lead.status === statusFilter;
       const matchesLevel = levelFilter === 'All' || lead.leadLevel === levelFilter;
-      const previousTokens = projectFilter.filter(isPreviousFilterToken);
-      const realProjects = projectFilter.filter(p => !isPreviousFilterToken(p));
+      const leadProjectKey = (lead.project || '').trim();
+      const leadCampaignKey = (lead.campaignName || '').trim();
       const matchesProject =
-        projectFilter.length === 0 ||
-        (realProjects.length > 0 && realProjects.includes(lead.project)) ||
+        projectFilter.length === 0 || projectFilter.includes(leadProjectKey);
+      const previousTokens = campaignFilter.filter(isPreviousFilterToken);
+      const realCampaigns = campaignFilter.filter(p => !isPreviousFilterToken(p));
+      const matchesCampaign =
+        campaignFilter.length === 0 ||
+        (realCampaigns.length > 0 &&
+          !!leadCampaignKey &&
+          realCampaigns.includes(leadCampaignKey)) ||
         (previousTokens.length > 0 &&
           leadMatchesPreviousFilter(lead, previousTokens, campaignGroups));
       const matchesAssignee =
@@ -1033,45 +1055,63 @@ export default function Leads() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesLevel && matchesProject && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
+      return matchesSearch && matchesStatus && matchesLevel && matchesProject && matchesCampaign && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, campaignGroups, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
+  }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, campaignFilter, campaignGroups, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
 
   const projectFilterOptions = useMemo(() => {
-    /** Any project name that appears on a lead already in a Previous group. */
+    const names = new Set<string>();
+    for (const lead of leads) {
+      const name = typeof lead.project === 'string' ? lead.project.trim() : '';
+      if (name) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [leads]);
+
+  const campaignFilterOptions = useMemo(() => {
     const excludedKeys = new Set<string>();
     for (const lead of leads) {
       if (!previousGroupNameForLead(lead, campaignGroups)) continue;
-      const project = (lead.project || '').trim();
-      if (project) excludedKeys.add(project.toLowerCase());
+      const campaign = (lead.campaignName || '').trim();
+      if (campaign) excludedKeys.add(campaign.toLowerCase());
     }
 
     const names = new Set<string>();
     for (const lead of leads) {
-      const name = typeof lead.project === 'string' ? lead.project.trim() : '';
+      if (previousGroupNameForLead(lead, campaignGroups)) continue;
+      const name = typeof lead.campaignName === 'string' ? lead.campaignName.trim() : '';
       if (!name) continue;
       if (isLabelInPreviousGroups(name, campaignGroups)) continue;
       if (excludedKeys.has(name.toLowerCase())) continue;
       names.add(name);
     }
-
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }, [leads, campaignGroups]);
 
-  /** Drop stale Current selections that are now covered by Previous groups. */
+  /** Drop stale Campaign selections that are now covered by Previous groups. */
   useEffect(() => {
-    setProjectFilter(prev => {
-      const cleaned = prev.filter(p => isPreviousFilterToken(p) || projectFilterOptions.includes(p));
+    setCampaignFilter(prev => {
+      const cleaned = prev.filter(p => isPreviousFilterToken(p) || campaignFilterOptions.includes(p));
       if (cleaned.length === prev.length && cleaned.every((v, i) => v === prev[i])) return prev;
       return cleaned;
     });
-  }, [campaignGroups, projectFilterOptions]);
+  }, [campaignGroups, campaignFilterOptions]);
 
   const projectFilterLabel = useMemo(() => {
     const n = projectFilter.length;
-    if (n === 0) return 'Show All';
+    if (n === 0) return 'All projects';
     if (n === 1) {
       const s = projectFilter[0];
+      return s.length > 32 ? `${s.slice(0, 30)}…` : s;
+    }
+    return `${n} projects selected`;
+  }, [projectFilter]);
+
+  const campaignFilterLabel = useMemo(() => {
+    const n = campaignFilter.length;
+    if (n === 0) return 'All campaigns';
+    if (n === 1) {
+      const s = campaignFilter[0];
       if (s === PREVIOUS_FILTER_ALL) return 'Previous';
       if (s.startsWith(PREVIOUS_GROUP_PREFIX)) {
         const id = s.slice(PREVIOUS_GROUP_PREFIX.length);
@@ -1082,13 +1122,13 @@ export default function Leads() {
       return s.length > 32 ? `${s.slice(0, 30)}…` : s;
     }
     const onlyPrevious =
-      projectFilter.every(isPreviousFilterToken) &&
-      projectFilter.includes(PREVIOUS_FILTER_ALL);
+      campaignFilter.every(isPreviousFilterToken) &&
+      campaignFilter.includes(PREVIOUS_FILTER_ALL);
     if (onlyPrevious) return 'Previous';
-    const prevCount = projectFilter.filter(isPreviousFilterToken).length;
+    const prevCount = campaignFilter.filter(isPreviousFilterToken).length;
     if (prevCount === n) return `${n} previous selected`;
-    return `${n} projects selected`;
-  }, [projectFilter, campaignGroups]);
+    return `${n} campaigns selected`;
+  }, [campaignFilter, campaignGroups]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -1108,6 +1148,7 @@ export default function Leads() {
     statusFilter !== 'All' ||
     levelFilter !== 'All' ||
     projectFilter.length > 0 ||
+    campaignFilter.length > 0 ||
     assigneeFilter !== 'All' ||
     dumpFilter !== 'Active' ||
     duplicateFilter !== 'All' ||
@@ -1324,33 +1365,37 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
+            {/* Campaign filter — Primary way to filter by Meta / campaign name */}
             <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,220px)] min-w-[180px] max-w-[280px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,240px)] min-w-[190px] max-w-[300px] items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50/60 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                  <Filter className="w-3 h-3 shrink-0 text-slate-400" />
-                  <span className="truncate text-left">{projectFilterLabel}</span>
+                  <Filter className="w-3 h-3 shrink-0 text-blue-500" />
+                  <span className="truncate text-left">
+                    <span className="text-blue-700 font-semibold mr-1">Campaign</span>
+                    <span className="text-slate-700">{campaignFilterLabel === 'All campaigns' ? '· All' : `· ${campaignFilterLabel}`}</span>
+                  </span>
                 </span>
                 <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-[min(100vw-2rem,22rem)] max-h-[min(70vh,20rem)] overflow-y-auto">
                 <DropdownMenuLabel className="text-xs font-normal text-slate-500">
-                  Projects — select multiple
+                  Filter by campaign name
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuCheckboxItem
-                  checked={projectFilter.length === 0}
+                  checked={campaignFilter.length === 0}
                   onCheckedChange={(checked) => {
-                    if (checked) setProjectFilter([]);
+                    if (checked) setCampaignFilter([]);
                   }}
                   className="text-xs font-medium"
                   onSelect={(e) => e.preventDefault()}
                 >
-                  Show All
+                  Show All campaigns
                 </DropdownMenuCheckboxItem>
-                {projectFilterOptions.length > 0 && (
+                {campaignFilterOptions.length > 0 && (
                   <DropdownMenuItem
                     className="text-xs"
-                    onClick={() => setProjectFilter([...projectFilterOptions])}
+                    onClick={() => setCampaignFilter([...campaignFilterOptions])}
                   >
                     Select all current
                   </DropdownMenuItem>
@@ -1366,9 +1411,9 @@ export default function Leads() {
                 ) : (
                   <>
                     <DropdownMenuCheckboxItem
-                      checked={projectFilter.includes(PREVIOUS_FILTER_ALL)}
+                      checked={campaignFilter.includes(PREVIOUS_FILTER_ALL)}
                       onCheckedChange={(checked) => {
-                        setProjectFilter((prev) => {
+                        setCampaignFilter((prev) => {
                           const withoutPrev = prev.filter(p => !isPreviousFilterToken(p));
                           if (checked) return [...withoutPrev, PREVIOUS_FILTER_ALL];
                           return withoutPrev;
@@ -1381,14 +1426,14 @@ export default function Leads() {
                     </DropdownMenuCheckboxItem>
                     {campaignGroups.map((g) => {
                       const token = previousGroupFilterToken(g.id);
-                      const allSelected = projectFilter.includes(PREVIOUS_FILTER_ALL);
+                      const allSelected = campaignFilter.includes(PREVIOUS_FILTER_ALL);
                       return (
                         <DropdownMenuCheckboxItem
                           key={g.id}
-                          checked={allSelected || projectFilter.includes(token)}
+                          checked={allSelected || campaignFilter.includes(token)}
                           disabled={allSelected}
                           onCheckedChange={(checked) => {
-                            setProjectFilter((prev) => {
+                            setCampaignFilter((prev) => {
                               const withoutAll = prev.filter(p => p !== PREVIOUS_FILTER_ALL);
                               if (checked) {
                                 return withoutAll.includes(token) ? withoutAll : [...withoutAll, token];
@@ -1407,14 +1452,74 @@ export default function Leads() {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
-                  Current
+                  Current campaigns
                 </DropdownMenuLabel>
-                {projectFilterOptions.length === 0 ? (
+                {campaignFilterOptions.length === 0 ? (
                   <div className="px-2 py-3 text-center text-xs text-slate-400">
                     {campaignGroups.length > 0
-                      ? 'No ungrouped projects — all are under Previous'
-                      : 'No projects in current list'}
+                      ? 'No ungrouped campaigns — all are under Previous'
+                      : 'No campaigns in current list'}
                   </div>
+                ) : (
+                  campaignFilterOptions.map((campaign) => (
+                    <DropdownMenuCheckboxItem
+                      key={campaign}
+                      checked={campaignFilter.includes(campaign)}
+                      onCheckedChange={(checked) => {
+                        setCampaignFilter((prev) => {
+                          if (checked) {
+                            return prev.includes(campaign) ? prev : [...prev, campaign];
+                          }
+                          return prev.filter((p) => p !== campaign);
+                        });
+                      }}
+                      className="text-xs"
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      <span className="line-clamp-3 break-words pr-1">{campaign}</span>
+                    </DropdownMenuCheckboxItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,200px)] min-w-[150px] max-w-[240px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <Filter className="w-3 h-3 shrink-0 text-slate-400" />
+                  <span className="truncate text-left">
+                    <span className="text-slate-500 font-medium mr-1">Project</span>
+                    <span>{projectFilterLabel === 'All projects' ? '· All' : `· ${projectFilterLabel}`}</span>
+                  </span>
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[min(100vw-2rem,20rem)] max-h-[min(70vh,20rem)] overflow-y-auto">
+                <DropdownMenuLabel className="text-xs font-normal text-slate-500">
+                  Projects — select multiple
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={projectFilter.length === 0}
+                  onCheckedChange={(checked) => {
+                    if (checked) setProjectFilter([]);
+                  }}
+                  className="text-xs font-medium"
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  All projects
+                </DropdownMenuCheckboxItem>
+                {projectFilterOptions.length > 0 && (
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onClick={() => setProjectFilter([...projectFilterOptions])}
+                  >
+                    Select all projects
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                {projectFilterOptions.length === 0 ? (
+                  <div className="px-2 py-3 text-center text-xs text-slate-400">No projects in current list</div>
                 ) : (
                   projectFilterOptions.map((project) => (
                     <DropdownMenuCheckboxItem
@@ -1548,6 +1653,7 @@ export default function Leads() {
                   setStatusFilter('All');
                   setLevelFilter('All');
                   setProjectFilter([]);
+                  setCampaignFilter([]);
                   setAssigneeFilter('All');
                   setDumpFilter('Active');
                   setDuplicateFilter('All');
@@ -1671,8 +1777,21 @@ export default function Leads() {
                       </TableCell>
 
                       <TableCell className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-medium text-slate-800 text-xs max-w-[140px] truncate" title={lead.project || undefined}>
-                          {lead.project?.trim() ? lead.project : '—'}
+                        <div
+                          className="font-medium text-slate-800 text-xs max-w-[140px] truncate"
+                          title={
+                            lead.project?.trim()
+                              ? lead.project
+                              : lead.campaignName?.trim()
+                                ? `From campaign: ${lead.campaignName}`
+                                : undefined
+                          }
+                        >
+                          {lead.project?.trim()
+                            ? lead.project
+                            : lead.campaignName?.trim()
+                              ? lead.campaignName
+                              : '—'}
                         </div>
                       </TableCell>
 

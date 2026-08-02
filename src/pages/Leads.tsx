@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { obfuscatePhoneNumber, triggerCall } from '@/src/utils/phoneUtils';
 import { format, isPast, isToday, parseISO, formatDistanceToNow, parse, startOfDay, endOfDay } from 'date-fns';
@@ -40,6 +40,12 @@ import {
   previousGroupNameForLead,
   isLabelInPreviousGroups,
 } from '@/src/services/campaignGroups';
+import {
+  formatGlobalDateRange,
+  isRangeActive,
+  leadInGlobalRange,
+  useGlobalDateRange,
+} from '@/src/services/globalDateRange';
 import {
   fetchLeads,
   fetchLeadsAssignedToAny,
@@ -256,6 +262,8 @@ export default function Leads() {
   const [dateFromStr, setDateFromStr] = useState(savedFilters.dateFromStr ?? '');
   const [dateToStr, setDateToStr] = useState(savedFilters.dateToStr ?? '');
   const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>(savedFilters.duplicateFilter ?? 'All');
+  /** Shared with Campaign Sources — set there, obeyed here. */
+  const [globalDateRange, setGlobalDateRange] = useGlobalDateRange();
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -974,10 +982,16 @@ export default function Leads() {
     }
   };
 
+  /** Everything below — rows, filter dropdowns, counts — starts from the shared date range. */
+  const leadsInRange = useMemo(() => {
+    if (!isRangeActive(globalDateRange)) return leads;
+    return leads.filter(lead => leadInGlobalRange(lead, globalDateRange));
+  }, [leads, globalDateRange]);
+
   const filtered = useMemo(() => {
     const nameCounts = new Map<string, number>();
     const phoneCounts = new Map<string, number>();
-    leads.forEach(lead => {
+    leadsInRange.forEach(lead => {
       const n = normalizeName(lead.clientName || '');
       const p = normalizePhone(lead.phoneNumber || '');
       if (n) nameCounts.set(n, (nameCounts.get(n) || 0) + 1);
@@ -985,7 +999,7 @@ export default function Leads() {
     });
 
     const q = searchTerm.toLowerCase();
-    return leads.filter(lead => {
+    return leadsInRange.filter(lead => {
       const matchesSearch = !q
         || lead.clientName.toLowerCase().includes(q)
         || lead.phoneNumber.includes(q)
@@ -995,15 +1009,13 @@ export default function Leads() {
       const matchesLevel = levelFilter === 'All' || lead.leadLevel === levelFilter;
       const leadProjectKey = (lead.project || '').trim();
       const leadCampaignKey = (lead.campaignName || '').trim();
-      const matchesProject =
-        projectFilter.length === 0 || projectFilter.includes(leadProjectKey);
       const previousTokens = campaignFilter.filter(isPreviousFilterToken);
       const realCampaigns = campaignFilter.filter(p => !isPreviousFilterToken(p));
-      const matchesCampaign =
-        campaignFilter.length === 0 ||
-        (realCampaigns.length > 0 &&
-          !!leadCampaignKey &&
-          realCampaigns.includes(leadCampaignKey)) ||
+      // One merged Project/Campaign filter: a lead matches if it hits ANY selected name.
+      const matchesSource =
+        (projectFilter.length === 0 && campaignFilter.length === 0) ||
+        (!!leadProjectKey && projectFilter.includes(leadProjectKey)) ||
+        (!!leadCampaignKey && realCampaigns.includes(leadCampaignKey)) ||
         (previousTokens.length > 0 &&
           leadMatchesPreviousFilter(lead, previousTokens, campaignGroups));
       const matchesAssignee =
@@ -1055,80 +1067,134 @@ export default function Leads() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesLevel && matchesProject && matchesCampaign && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
+      return matchesSearch && matchesStatus && matchesLevel && matchesSource && matchesAssignee && matchesDuplicate && matchesDump && matchesDate;
     });
-  }, [leads, searchTerm, statusFilter, levelFilter, projectFilter, campaignFilter, campaignGroups, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
+  }, [leadsInRange, searchTerm, statusFilter, levelFilter, projectFilter, campaignFilter, campaignGroups, assigneeFilter, duplicateFilter, dumpFilter, dumpGraceUntil, dateFilterField, dateFromStr, dateToStr]);
 
-  const projectFilterOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const lead of leads) {
-      const name = typeof lead.project === 'string' ? lead.project.trim() : '';
-      if (name) names.add(name);
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  }, [leads]);
+  /**
+   * One merged Project/Campaign list. A name that exists as both is shown once,
+   * so "Campaign_Eldeco EOE_30 April 2026" never appears twice.
+   */
+  const sourceFilterOptions = useMemo(() => {
+    const byKey = new Map<string, { label: string; isProject: boolean; isCampaign: boolean }>();
 
-  const campaignFilterOptions = useMemo(() => {
-    const excludedKeys = new Set<string>();
-    for (const lead of leads) {
-      if (!previousGroupNameForLead(lead, campaignGroups)) continue;
-      const campaign = (lead.campaignName || '').trim();
-      if (campaign) excludedKeys.add(campaign.toLowerCase());
-    }
-
-    const names = new Set<string>();
-    for (const lead of leads) {
-      if (previousGroupNameForLead(lead, campaignGroups)) continue;
-      const name = typeof lead.campaignName === 'string' ? lead.campaignName.trim() : '';
-      if (!name) continue;
-      if (isLabelInPreviousGroups(name, campaignGroups)) continue;
-      if (excludedKeys.has(name.toLowerCase())) continue;
-      names.add(name);
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  }, [leads, campaignGroups]);
-
-  /** Drop stale Campaign selections that are now covered by Previous groups. */
-  useEffect(() => {
-    setCampaignFilter(prev => {
-      const cleaned = prev.filter(p => isPreviousFilterToken(p) || campaignFilterOptions.includes(p));
-      if (cleaned.length === prev.length && cleaned.every((v, i) => v === prev[i])) return prev;
-      return cleaned;
-    });
-  }, [campaignGroups, campaignFilterOptions]);
-
-  const projectFilterLabel = useMemo(() => {
-    const n = projectFilter.length;
-    if (n === 0) return 'All projects';
-    if (n === 1) {
-      const s = projectFilter[0];
-      return s.length > 32 ? `${s.slice(0, 30)}…` : s;
-    }
-    return `${n} projects selected`;
-  }, [projectFilter]);
-
-  const campaignFilterLabel = useMemo(() => {
-    const n = campaignFilter.length;
-    if (n === 0) return 'All campaigns';
-    if (n === 1) {
-      const s = campaignFilter[0];
-      if (s === PREVIOUS_FILTER_ALL) return 'Previous';
-      if (s.startsWith(PREVIOUS_GROUP_PREFIX)) {
-        const id = s.slice(PREVIOUS_GROUP_PREFIX.length);
-        const g = campaignGroups.find(x => x.id === id);
-        const name = g?.name ?? 'Previous';
-        return name.length > 32 ? `${name.slice(0, 30)}…` : name;
+    const add = (raw: string, kind: 'project' | 'campaign') => {
+      const label = raw.trim();
+      if (!label) return;
+      if (isLabelInPreviousGroups(label, campaignGroups)) return;
+      const key = label.toLowerCase();
+      const existing = byKey.get(key);
+      if (existing) {
+        if (kind === 'project') existing.isProject = true;
+        else existing.isCampaign = true;
+        return;
       }
-      return s.length > 32 ? `${s.slice(0, 30)}…` : s;
+      byKey.set(key, {
+        label,
+        isProject: kind === 'project',
+        isCampaign: kind === 'campaign',
+      });
+    };
+
+    for (const lead of leadsInRange) {
+      if (previousGroupNameForLead(lead, campaignGroups)) continue;
+      add(typeof lead.project === 'string' ? lead.project : '', 'project');
+      add(typeof lead.campaignName === 'string' ? lead.campaignName : '', 'campaign');
     }
-    const onlyPrevious =
-      campaignFilter.every(isPreviousFilterToken) &&
-      campaignFilter.includes(PREVIOUS_FILTER_ALL);
-    if (onlyPrevious) return 'Previous';
-    const prevCount = campaignFilter.filter(isPreviousFilterToken).length;
-    if (prevCount === n) return `${n} previous selected`;
-    return `${n} campaigns selected`;
-  }, [campaignFilter, campaignGroups]);
+
+    return [...byKey.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+    );
+  }, [leadsInRange, campaignGroups]);
+
+  const projectFilterOptions = useMemo(
+    () => sourceFilterOptions.filter(o => o.isProject).map(o => o.label),
+    [sourceFilterOptions]
+  );
+
+  const campaignFilterOptions = useMemo(
+    () => sourceFilterOptions.filter(o => o.isCampaign).map(o => o.label),
+    [sourceFilterOptions]
+  );
+
+  const isSourceSelected = useCallback(
+    (label: string) => projectFilter.includes(label) || campaignFilter.includes(label),
+    [projectFilter, campaignFilter]
+  );
+
+  /** Ticking a name selects it wherever it lives — project side, campaign side, or both. */
+  const toggleSourceOption = useCallback(
+    (option: { label: string; isProject: boolean; isCampaign: boolean }, checked: boolean) => {
+      const { label, isProject, isCampaign } = option;
+      setProjectFilter(prev => {
+        if (!checked) return prev.filter(p => p !== label);
+        if (!isProject || prev.includes(label)) return prev;
+        return [...prev, label];
+      });
+      setCampaignFilter(prev => {
+        if (!checked) return prev.filter(p => p !== label);
+        if (!isCampaign || prev.includes(label)) return prev;
+        return [...prev, label];
+      });
+    },
+    []
+  );
+
+  const selectAllSources = useCallback(() => {
+    setProjectFilter(sourceFilterOptions.filter(o => o.isProject).map(o => o.label));
+    setCampaignFilter(prev => [
+      ...prev.filter(isPreviousFilterToken),
+      ...sourceFilterOptions.filter(o => o.isCampaign).map(o => o.label),
+    ]);
+  }, [sourceFilterOptions]);
+
+  const clearSourceFilter = useCallback(() => {
+    setProjectFilter([]);
+    setCampaignFilter([]);
+  }, []);
+
+  /** Drop picks whose name no longer exists in the current lead set. */
+  useEffect(() => {
+    if (leadsInRange.length === 0) return; // don't wipe restored picks before leads load
+    const knownTokens = new Set([
+      PREVIOUS_FILTER_ALL,
+      ...campaignGroups.map(g => previousGroupFilterToken(g.id)),
+    ]);
+    const keep = (list: string[], valid: string[]) => {
+      const cleaned = list.filter(p =>
+        isPreviousFilterToken(p) ? knownTokens.has(p) : valid.includes(p)
+      );
+      return cleaned.length === list.length ? list : cleaned;
+    };
+    setProjectFilter(prev => keep(prev, projectFilterOptions));
+    setCampaignFilter(prev => keep(prev, campaignFilterOptions));
+  }, [leadsInRange.length, projectFilterOptions, campaignFilterOptions, campaignGroups]);
+
+  /** Distinct names currently ticked, previous groups counted once. */
+  const selectedSourceNames = useMemo(
+    () => [...new Set([...projectFilter, ...campaignFilter.filter(p => !isPreviousFilterToken(p))])],
+    [projectFilter, campaignFilter]
+  );
+
+  const sourceFilterLabel = useMemo(() => {
+    const previousTokens = campaignFilter.filter(isPreviousFilterToken);
+    const total = selectedSourceNames.length + previousTokens.length;
+    if (total === 0) return 'All';
+
+    const shorten = (s: string) => (s.length > 28 ? `${s.slice(0, 26)}…` : s);
+
+    if (total === 1) {
+      if (selectedSourceNames.length === 1) return shorten(selectedSourceNames[0]);
+      const token = previousTokens[0];
+      if (token === PREVIOUS_FILTER_ALL) return 'Previous';
+      const id = token.slice(PREVIOUS_GROUP_PREFIX.length);
+      return shorten(campaignGroups.find(g => g.id === id)?.name ?? 'Previous');
+    }
+    if (previousTokens.includes(PREVIOUS_FILTER_ALL) && selectedSourceNames.length === 0) {
+      return 'Previous';
+    }
+    return `${total} selected`;
+  }, [selectedSourceNames, campaignFilter, campaignGroups]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -1342,6 +1408,23 @@ export default function Leads() {
             </div>
           </div>
 
+          {isRangeActive(globalDateRange) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <CalendarRange className="w-3.5 h-3.5 shrink-0 text-blue-500" />
+              <span>
+                Showing only leads created {formatGlobalDateRange(globalDateRange)} — date range set
+                in Campaign Sources.
+              </span>
+              <button
+                type="button"
+                className="ml-auto font-medium underline underline-offset-2 hover:text-blue-900"
+                onClick={() => setGlobalDateRange({ from: '', to: '' })}
+              >
+                Show all dates
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="h-8 text-xs w-[160px] border-slate-200 bg-slate-50">
@@ -1365,41 +1448,39 @@ export default function Leads() {
               </SelectContent>
             </Select>
 
-            {/* Campaign filter — Primary way to filter by Meta / campaign name */}
+            {/* One merged Project + Campaign filter — each name appears once. */}
             <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,240px)] min-w-[190px] max-w-[300px] items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50/60 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,260px)] min-w-[200px] max-w-[320px] items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50/60 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
                   <Filter className="w-3 h-3 shrink-0 text-blue-500" />
                   <span className="truncate text-left">
-                    <span className="text-blue-700 font-semibold mr-1">Campaign</span>
-                    <span className="text-slate-700">{campaignFilterLabel === 'All campaigns' ? '· All' : `· ${campaignFilterLabel}`}</span>
+                    <span className="text-blue-700 font-semibold mr-1">Project / Campaign</span>
+                    <span className="text-slate-700">· {sourceFilterLabel}</span>
                   </span>
                 </span>
                 <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[min(100vw-2rem,22rem)] max-h-[min(70vh,20rem)] overflow-y-auto">
+              <DropdownMenuContent align="start" className="w-[min(100vw-2rem,24rem)] max-h-[min(70vh,22rem)] overflow-y-auto">
                 <DropdownMenuLabel className="text-xs font-normal text-slate-500">
-                  Filter by campaign name
+                  Projects and campaigns — tick any, leads matching any of them show
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuCheckboxItem
-                  checked={campaignFilter.length === 0}
+                  checked={projectFilter.length === 0 && campaignFilter.length === 0}
                   onCheckedChange={(checked) => {
-                    if (checked) setCampaignFilter([]);
+                    if (checked) clearSourceFilter();
                   }}
                   className="text-xs font-medium"
                   onSelect={(e) => e.preventDefault()}
                 >
-                  Show All campaigns
+                  Show all
                 </DropdownMenuCheckboxItem>
-                {campaignFilterOptions.length > 0 && (
-                  <DropdownMenuItem
-                    className="text-xs"
-                    onClick={() => setCampaignFilter([...campaignFilterOptions])}
-                  >
-                    Select all current
+                {sourceFilterOptions.length > 0 && (
+                  <DropdownMenuItem className="text-xs" onClick={selectAllSources}>
+                    Select all
                   </DropdownMenuItem>
                 )}
+
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
                   Previous
@@ -1450,93 +1531,34 @@ export default function Leads() {
                     })}
                   </>
                 )}
+
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
-                  Current campaigns
+                  Current
                 </DropdownMenuLabel>
-                {campaignFilterOptions.length === 0 ? (
+                {sourceFilterOptions.length === 0 ? (
                   <div className="px-2 py-3 text-center text-xs text-slate-400">
                     {campaignGroups.length > 0
-                      ? 'No ungrouped campaigns — all are under Previous'
-                      : 'No campaigns in current list'}
+                      ? 'Nothing ungrouped — all names are under Previous'
+                      : 'No projects or campaigns in current list'}
                   </div>
                 ) : (
-                  campaignFilterOptions.map((campaign) => (
+                  sourceFilterOptions.map((option) => (
                     <DropdownMenuCheckboxItem
-                      key={campaign}
-                      checked={campaignFilter.includes(campaign)}
-                      onCheckedChange={(checked) => {
-                        setCampaignFilter((prev) => {
-                          if (checked) {
-                            return prev.includes(campaign) ? prev : [...prev, campaign];
-                          }
-                          return prev.filter((p) => p !== campaign);
-                        });
-                      }}
+                      key={option.label}
+                      checked={isSourceSelected(option.label)}
+                      onCheckedChange={(checked) => toggleSourceOption(option, !!checked)}
                       className="text-xs"
                       onSelect={(e) => e.preventDefault()}
                     >
-                      <span className="line-clamp-3 break-words pr-1">{campaign}</span>
-                    </DropdownMenuCheckboxItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,200px)] min-w-[150px] max-w-[240px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                  <Filter className="w-3 h-3 shrink-0 text-slate-400" />
-                  <span className="truncate text-left">
-                    <span className="text-slate-500 font-medium mr-1">Project</span>
-                    <span>{projectFilterLabel === 'All projects' ? '· All' : `· ${projectFilterLabel}`}</span>
-                  </span>
-                </span>
-                <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[min(100vw-2rem,20rem)] max-h-[min(70vh,20rem)] overflow-y-auto">
-                <DropdownMenuLabel className="text-xs font-normal text-slate-500">
-                  Projects — select multiple
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={projectFilter.length === 0}
-                  onCheckedChange={(checked) => {
-                    if (checked) setProjectFilter([]);
-                  }}
-                  className="text-xs font-medium"
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  All projects
-                </DropdownMenuCheckboxItem>
-                {projectFilterOptions.length > 0 && (
-                  <DropdownMenuItem
-                    className="text-xs"
-                    onClick={() => setProjectFilter([...projectFilterOptions])}
-                  >
-                    Select all projects
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                {projectFilterOptions.length === 0 ? (
-                  <div className="px-2 py-3 text-center text-xs text-slate-400">No projects in current list</div>
-                ) : (
-                  projectFilterOptions.map((project) => (
-                    <DropdownMenuCheckboxItem
-                      key={project}
-                      checked={projectFilter.includes(project)}
-                      onCheckedChange={(checked) => {
-                        setProjectFilter((prev) => {
-                          if (checked) {
-                            return prev.includes(project) ? prev : [...prev, project];
-                          }
-                          return prev.filter((p) => p !== project);
-                        });
-                      }}
-                      className="text-xs"
-                      onSelect={(e) => e.preventDefault()}
-                    >
-                      <span className="line-clamp-3 break-words pr-1">{project}</span>
+                      <span className="line-clamp-3 break-words pr-1">{option.label}</span>
+                      <span className="ml-auto shrink-0 pl-2 text-[0.65rem] uppercase tracking-wide text-slate-400">
+                        {option.isProject && option.isCampaign
+                          ? 'both'
+                          : option.isProject
+                            ? 'project'
+                            : 'campaign'}
+                      </span>
                     </DropdownMenuCheckboxItem>
                   ))
                 )}
@@ -2017,7 +2039,8 @@ export default function Leads() {
 
         <div className="flex items-center justify-between text-xs text-slate-500 px-4 py-3 border-t border-slate-200">
           <div>
-            Showing {sorted.length} of {leads.length} leads
+            Showing {sorted.length} of {leadsInRange.length} leads
+            {isRangeActive(globalDateRange) && ` in ${formatGlobalDateRange(globalDateRange)}`}
             {!seesFullLeadDirectory && isManager && ' (you and your team)'}
             {!seesFullLeadDirectory && !isManager && ' (assigned to you)'}
           </div>

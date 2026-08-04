@@ -33,16 +33,17 @@ const PIPELINE_FUNNEL_STAGES: LeadStatus[] = [
   'Site Visit Scheduled',
   'Busy',
   'Not Reachable',
+  'Not Answering Call',
 ];
 
 const DUMP_JUNK_STATUSES = new Set<LeadStatus>(['Fake Query', 'Wrong Number', 'Low Budget', 'Switch off']);
 
-const CLOSED_STATUSES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Not Reachable', 'Switch off'];
+const CLOSED_STATUSES: LeadStatus[] = ['Not Interested', 'Wrong Number', 'Low Budget', 'Fake Query', 'Not Reachable', 'Not Answering Call', 'Switch off'];
 
 /** Primary “success” stage for KPIs (replaces legacy Booked) */
 const VISIT_SCHEDULED: LeadStatus = 'Site Visit Scheduled';
 
-const funnelStageColors = ['#60a5fa', '#a78bfa', '#22d3ee', '#fbbf24', '#94a3b8'];
+const funnelStageColors = ['#60a5fa', '#a78bfa', '#22d3ee', '#fbbf24', '#94a3b8', '#fb923c'];
 const activityColors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'];
 
 // Add this component at the top of the file or bottom, before export default function
@@ -432,6 +433,7 @@ export default function Dashboard() {
                       <div className="absolute -bottom-10 left-0 right-0 text-center text-[10px] font-bold text-slate-500 px-0.5 leading-tight">
                         {item.stage === 'Site Visit Scheduled' ? 'Visit\nSched.' :
                          item.stage === 'Not Reachable' ? 'No\nreach' :
+                         item.stage === 'Not Answering Call' ? 'No\nanswer' :
                          item.stage === 'Dump' ? 'Dump' :
                          item.stage === 'Not Interested' ? 'Not\nint.' :
                          item.stage === 'Busy' ? 'Busy' : item.stage}

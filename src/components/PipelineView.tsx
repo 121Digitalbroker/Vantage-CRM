@@ -39,6 +39,7 @@ const PIPELINE_STAGES: { id: LeadStatus; label: string; color: string; bg: strin
   { id: 'Site Visit Scheduled', label: 'Site Visit', color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200' },
   { id: 'Busy', label: 'Busy', color: 'text-amber-800', bg: 'bg-amber-50', border: 'border-amber-200' },
   { id: 'Not Reachable', label: 'Not Reachable', color: 'text-slate-700', bg: 'bg-slate-100', border: 'border-slate-200' },
+  { id: 'Not Answering Call', label: 'Not Answering', color: 'text-orange-800', bg: 'bg-orange-50', border: 'border-orange-200' },
   { id: 'Fake Query', label: 'Fake Query', color: 'text-rose-800', bg: 'bg-rose-50', border: 'border-rose-200' },
   { id: 'Not Interested', label: 'Not Interested', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
   { id: 'Wrong Number', label: 'Wrong Number', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' },

@@ -33,7 +33,7 @@ import type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory } from '@
 import { notificationService } from '@/src/services/notificationService';
 
 const VALID_STATUSES: LeadStatus[] = [
-  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Not Answering Call', 'Fake Query',
   'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
 

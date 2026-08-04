@@ -51,7 +51,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const LEAD_STATUSES: LeadStatus[] = [
-  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Not Answering Call', 'Fake Query',
   'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
 
@@ -82,6 +82,7 @@ const getStatusColors = (status: LeadStatus) => {
     case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-700';
     case 'Busy': return 'bg-amber-100 text-amber-800';
     case 'Not Reachable': return 'bg-slate-200 text-slate-700';
+    case 'Not Answering Call': return 'bg-orange-100 text-orange-800';
     case 'Fake Query': return 'bg-rose-100 text-rose-800';
     case 'Not Interested': return 'bg-red-100 text-red-700';
     case 'Wrong Number': return 'bg-gray-100 text-gray-600';

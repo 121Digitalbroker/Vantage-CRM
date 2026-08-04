@@ -24,7 +24,7 @@ import type { DemoNote, DemoFollowUp, AssignmentHistory, StatusHistory } from '@
 import { useRole } from '@/src/contexts/RoleContext';
 
 const LEAD_STATUSES: LeadStatus[] = [
-  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Fake Query',
+  'New', 'Interested', 'Site Visit Scheduled', 'Busy', 'Not Reachable', 'Not Answering Call', 'Fake Query',
   'Not Interested', 'Wrong Number', 'Low Budget', 'Switch off',
 ];
 const LEAD_LEVELS: LeadLevel[] = ['Hot', 'Warm', 'Cold'];
@@ -44,6 +44,7 @@ const getStatusBadgeColor = (status: LeadStatus) => {
     case 'Site Visit Scheduled': return 'bg-cyan-100 text-cyan-800 border-cyan-200';
     case 'Busy': return 'bg-amber-100 text-amber-900 border-amber-200';
     case 'Not Reachable': return 'bg-slate-200 text-slate-800 border-slate-300';
+    case 'Not Answering Call': return 'bg-orange-100 text-orange-900 border-orange-200';
     case 'Fake Query': return 'bg-rose-100 text-rose-900 border-rose-200';
     case 'Not Interested': return 'bg-red-100 text-red-800 border-red-200';
     case 'Wrong Number': return 'bg-gray-100 text-gray-800 border-gray-200';

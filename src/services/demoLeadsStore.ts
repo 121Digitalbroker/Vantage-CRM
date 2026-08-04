@@ -19,6 +19,7 @@ const VALID_STATUSES: Lead['status'][] = [
   'Site Visit Scheduled',
   'Busy',
   'Not Reachable',
+  'Not Answering Call',
   'Fake Query',
   'Not Interested',
   'Wrong Number',

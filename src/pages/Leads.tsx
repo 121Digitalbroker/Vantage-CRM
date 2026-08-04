@@ -89,7 +89,8 @@ type LeadsFilterSnapshot = {
   projectFilter: string[];
   /** Empty = all campaigns; may include Previous group tokens */
   campaignFilter: string[];
-  assigneeFilter: string;
+  /** Empty = everyone; may include `__unassigned__` / `__rejected__` */
+  assigneeFilter: string[];
   dumpFilter: 'Active' | 'Dump' | 'All';
   dateFilterField: 'none' | 'createdAt' | 'followUpDate';
   dateFromStr: string;
@@ -253,7 +254,10 @@ export default function Leads() {
     return [...new Set([...fromCampaign, ...migratedPrev])];
   });
   const [campaignGroups, setCampaignGroups] = useState<CampaignGroup[]>(() => loadCampaignGroups());
-  const [assigneeFilter, setAssigneeFilter] = useState(savedFilters.assigneeFilter ?? 'All');
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() =>
+    // Older saves held a single value ('All' meant everyone).
+    normalizeSavedProjectFilter(savedFilters.assigneeFilter).filter(v => v !== 'All')
+  );
   const [dumpFilter, setDumpFilter] = useState<'Active' | 'Dump' | 'All'>(savedFilters.dumpFilter ?? 'Active');
   /** leadId -> epoch ms; while now < value, dump lead still shows in Active view */
   const [dumpGraceUntil, setDumpGraceUntil] = useState<Record<string, number>>({});
@@ -262,8 +266,8 @@ export default function Leads() {
   const [dateFromStr, setDateFromStr] = useState(savedFilters.dateFromStr ?? '');
   const [dateToStr, setDateToStr] = useState(savedFilters.dateToStr ?? '');
   const [duplicateFilter, setDuplicateFilter] = useState<'All' | 'Name' | 'Phone' | 'NameOrPhone'>(savedFilters.duplicateFilter ?? 'All');
-  /** Shared with Campaign Sources — set there, obeyed here. */
-  const [globalDateRange, setGlobalDateRange] = useGlobalDateRange();
+  /** Set on Campaign Sources, stored in Supabase, obeyed by every user here. */
+  const { range: globalDateRange, setRange: setGlobalDateRange } = useGlobalDateRange();
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -601,7 +605,7 @@ export default function Leads() {
       setLevelFilter('All');
       setProjectFilter([]);
       setCampaignFilter([]);
-      setAssigneeFilter('All');
+      setAssigneeFilter([]);
       setSearchTerm('');
       setDateFilterField('none');
       setDateFromStr('');
@@ -1018,13 +1022,16 @@ export default function Leads() {
         (!!leadCampaignKey && realCampaigns.includes(leadCampaignKey)) ||
         (previousTokens.length > 0 &&
           leadMatchesPreviousFilter(lead, previousTokens, campaignGroups));
+      // Multi-select: a lead matches if it belongs to ANY ticked person/bucket.
       const matchesAssignee =
-        assigneeFilter === 'All'
-        || (assigneeFilter === '__unassigned__'
-          ? !lead.assignedUserId
-          : assigneeFilter === '__rejected__'
-            ? lead.status === 'Not Interested'
-            : lead.assignedUserId === assigneeFilter);
+        assigneeFilter.length === 0
+        || assigneeFilter.some(v =>
+          v === '__unassigned__'
+            ? !lead.assignedUserId
+            : v === '__rejected__'
+              ? lead.status === 'Not Interested'
+              : lead.assignedUserId === v
+        );
       const isDumpView = DUMP_VIEW_STATUSES.has(lead.status);
       const isJunkDump = DUMP_STATUSES.has(lead.status);
       const inDumpGrace =
@@ -1196,6 +1203,22 @@ export default function Leads() {
     return `${total} selected`;
   }, [selectedSourceNames, campaignFilter, campaignGroups]);
 
+  const assigneeFilterLabel = useMemo(() => {
+    const n = assigneeFilter.length;
+    if (n === 0) return 'All';
+    const nameFor = (v: string) =>
+      v === '__unassigned__'
+        ? 'Unassigned'
+        : v === '__rejected__'
+          ? 'Rejected'
+          : assigneePickerUsers.find(u => u.id === v)?.name ?? 'Unknown';
+    if (n === 1) {
+      const s = nameFor(assigneeFilter[0]);
+      return s.length > 20 ? `${s.slice(0, 18)}…` : s;
+    }
+    return `${n} people`;
+  }, [assigneeFilter, assigneePickerUsers]);
+
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       let aVal: string | number = '';
@@ -1215,7 +1238,7 @@ export default function Leads() {
     levelFilter !== 'All' ||
     projectFilter.length > 0 ||
     campaignFilter.length > 0 ||
-    assigneeFilter !== 'All' ||
+    assigneeFilter.length > 0 ||
     dumpFilter !== 'Active' ||
     duplicateFilter !== 'All' ||
     searchTerm ||
@@ -1413,15 +1436,22 @@ export default function Leads() {
               <CalendarRange className="w-3.5 h-3.5 shrink-0 text-blue-500" />
               <span>
                 Showing only leads created {formatGlobalDateRange(globalDateRange)} — date range set
-                in Campaign Sources.
+                in Campaign Sources, shared with everyone.
               </span>
-              <button
-                type="button"
-                className="ml-auto font-medium underline underline-offset-2 hover:text-blue-900"
-                onClick={() => setGlobalDateRange({ from: '', to: '' })}
-              >
-                Show all dates
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="ml-auto font-medium underline underline-offset-2 hover:text-blue-900"
+                  onClick={async () => {
+                    const ok = await setGlobalDateRange({ from: '', to: '' });
+                    toast[ok ? 'success' : 'error'](
+                      ok ? 'Date range cleared for everyone' : 'Could not clear the shared date range'
+                    );
+                  }}
+                >
+                  Show all dates
+                </button>
+              )}
             </div>
           )}
 
@@ -1566,20 +1596,88 @@ export default function Leads() {
             </DropdownMenu>
 
             {(seesFullLeadDirectory || isManager) && (
-              <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-                <SelectTrigger className="h-8 text-xs w-[150px] border-slate-200 bg-slate-50">
-                  <Filter className="w-3 h-3 mr-1.5 text-slate-400" />
-                  <SelectValue placeholder="All Assignees" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Assignees</SelectItem>
-                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                  <SelectItem value="__rejected__">Rejected</SelectItem>
-                  {assigneePickerUsers.map(u => (
-                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="inline-flex h-8 w-[min(100%,200px)] min-w-[150px] max-w-[240px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal shadow-sm outline-none ring-offset-background hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <Filter className="w-3 h-3 shrink-0 text-slate-400" />
+                    <span className="truncate text-left">
+                      <span className="text-slate-500 font-medium mr-1">Assigned</span>
+                      <span className="text-slate-700">· {assigneeFilterLabel}</span>
+                    </span>
+                  </span>
+                  <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-[min(100vw-2rem,18rem)] max-h-[min(70vh,22rem)] overflow-y-auto">
+                  <DropdownMenuLabel className="text-xs font-normal text-slate-500">
+                    Assigned to — tick as many people as you need
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={assigneeFilter.length === 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) setAssigneeFilter([]);
+                    }}
+                    className="text-xs font-medium"
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    All assignees
+                  </DropdownMenuCheckboxItem>
+                  {assigneePickerUsers.length > 0 && (
+                    <DropdownMenuItem
+                      className="text-xs"
+                      onClick={() => setAssigneeFilter(assigneePickerUsers.map(u => u.id))}
+                    >
+                      Select all people
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  {[
+                    { id: '__unassigned__', name: 'Unassigned' },
+                    { id: '__rejected__', name: 'Rejected' },
+                  ].map(bucket => (
+                    <DropdownMenuCheckboxItem
+                      key={bucket.id}
+                      checked={assigneeFilter.includes(bucket.id)}
+                      onCheckedChange={(checked) => {
+                        setAssigneeFilter(prev =>
+                          checked
+                            ? prev.includes(bucket.id) ? prev : [...prev, bucket.id]
+                            : prev.filter(v => v !== bucket.id)
+                        );
+                      }}
+                      className="text-xs"
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      {bucket.name}
+                    </DropdownMenuCheckboxItem>
                   ))}
-                </SelectContent>
-              </Select>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-xs font-semibold text-slate-600">
+                    People
+                  </DropdownMenuLabel>
+                  {assigneePickerUsers.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-xs text-slate-400">No users to show</div>
+                  ) : (
+                    assigneePickerUsers.map(u => (
+                      <DropdownMenuCheckboxItem
+                        key={u.id}
+                        checked={assigneeFilter.includes(u.id)}
+                        onCheckedChange={(checked) => {
+                          setAssigneeFilter(prev =>
+                            checked
+                              ? prev.includes(u.id) ? prev : [...prev, u.id]
+                              : prev.filter(v => v !== u.id)
+                          );
+                        }}
+                        className="text-xs"
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        <span className="line-clamp-2 break-words pr-1">{u.name}</span>
+                      </DropdownMenuCheckboxItem>
+                    ))
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
 
             {isAdmin && (
@@ -1676,7 +1774,7 @@ export default function Leads() {
                   setLevelFilter('All');
                   setProjectFilter([]);
                   setCampaignFilter([]);
-                  setAssigneeFilter('All');
+                  setAssigneeFilter([]);
                   setDumpFilter('Active');
                   setDuplicateFilter('All');
                   setSearchTerm('');

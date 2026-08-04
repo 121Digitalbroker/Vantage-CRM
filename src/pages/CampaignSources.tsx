@@ -105,9 +105,29 @@ export default function CampaignSources() {
   const [projectScope, setProjectScope] = useState(ALL_PROJECTS);
   const [campaignScope, setCampaignScope] = useState(ALL_CAMPAIGNS);
 
-  // Shared with Leads — set the range here, every page honours it.
-  const [dateRange, setDateRange] = useGlobalDateRange();
+  // Shared with Leads and stored in Supabase — every user sees the same range.
+  const {
+    range: dateRange,
+    setRange: setDateRangeShared,
+    loading: dateRangeLoading,
+  } = useGlobalDateRange();
   const { from: dateFrom, to: dateTo } = dateRange;
+  const [savingRange, setSavingRange] = useState(false);
+
+  const setDateRange = useCallback(
+    async (next: { from: string; to: string }) => {
+      setSavingRange(true);
+      const ok = await setDateRangeShared(next);
+      setSavingRange(false);
+      if (ok) {
+        const cleared = !next.from && !next.to;
+        toast.success(cleared ? 'Date range cleared for everyone' : 'Date range applied for everyone');
+      } else {
+        toast.error('Could not share the date range — run supabase-crm-app-settings.sql');
+      }
+    },
+    [setDateRangeShared]
+  );
   /** Typed but not yet applied — nothing filters until Apply is pressed. */
   const [draftFrom, setDraftFrom] = useState(dateRange.from);
   const [draftTo, setDraftTo] = useState(dateRange.to);
@@ -251,12 +271,12 @@ export default function CampaignSources() {
 
   const applyDraftRange = () => {
     if (draftInvalid) return;
-    setDateRange({ from: draftFrom, to: draftTo });
+    void setDateRange({ from: draftFrom, to: draftTo });
   };
 
   const applyLastDays = (days: number) => {
     const today = new Date();
-    setDateRange({
+    void setDateRange({
       from: format(subDays(today, days - 1), 'yyyy-MM-dd'),
       to: format(today, 'yyyy-MM-dd'),
     });
@@ -265,7 +285,7 @@ export default function CampaignSources() {
   const clearFilters = () => {
     setProjectScope(ALL_PROJECTS);
     setCampaignScope(ALL_CAMPAIGNS);
-    setDateRange({ from: '', to: '' });
+    void setDateRange({ from: '', to: '' });
   };
 
   const hasFilters =
@@ -614,10 +634,10 @@ export default function CampaignSources() {
               size="sm"
               className="h-9 text-xs bg-blue-500 hover:bg-blue-600 text-white"
               onClick={applyDraftRange}
-              disabled={!draftDiffers || draftInvalid}
+              disabled={!draftDiffers || draftInvalid || savingRange || dateRangeLoading}
             >
               <Check className="w-3.5 h-3.5 mr-1" />
-              Apply
+              {savingRange ? 'Applying…' : 'Apply'}
             </Button>
             <Button variant="outline" size="sm" className="h-9 text-xs" onClick={() => applyLastDays(7)}>
               Last 7 days
@@ -650,7 +670,7 @@ export default function CampaignSources() {
             ? 'The “from” date is after the “to” date.'
             : draftDiffers
               ? 'Press Apply to use these dates.'
-              : 'The date range applies everywhere — the Leads page shows only leads created inside it.'}
+              : 'The date range is shared with every user and applies on the Leads page too.'}
         </p>
       </div>
 
